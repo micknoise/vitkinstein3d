@@ -81,7 +81,9 @@ URL flags: `?seed=N`, `?perf=1`, `?pr=N` (pin pixel ratio), `?nograin=1`.
   stay silent.
 - Grabbable objects stay individual and dependable. They are what players use to
   navigate; do not merge, pool or stabilise them away.
-- One experiment per branch (`exp/<name>`); record the verdict in `PLAN.md` §9,
-  including for the ones you throw away.
+- **Trunk only — no experiment branches.** One experiment per commit, on `main`,
+  pushed as soon as `npm test` is green: GitHub Pages serves `main`, and playing
+  it is how an experiment gets judged. Revert is the undo. Record the verdict in
+  `PLAN.md` §10, including for the ones you throw away.
 - `npm run perf` before and after anything touching rendering; put both sets of
   numbers in the commit message.

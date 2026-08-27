@@ -5,7 +5,8 @@ knowledge about which of its possible directions are any good. Everything below
 is written as an experiment: a claim, the smallest thing that would test it, and
 what would make us drop it.
 
-**Working rate: one experiment at a time.** `main` stays playable and green.
+**Working rate: one experiment at a time, committed and pushed to `main`.**
+`main` stays playable and green — it is what gets played.
 
 ---
 
@@ -91,19 +92,27 @@ and the easiest thing in the building to ruin. See A1.
 
 ## 3. How to work on this
 
-1. **One experiment per branch**, named `exp/<short-name>`. The branch exists to
-   be thrown away; that is the point of it.
+**Trunk only.** Work lands on `main` and is pushed as soon as it is green,
+because GitHub Pages serves `main` and playing it is how an experiment gets
+judged. An experiment that sits on a branch is an experiment nobody has played.
+Revert is the undo, not a branch: the commit is the unit that gets thrown away.
+
+1. **One experiment per commit**, small enough that reverting it takes nothing
+   else with it. `main` stays playable at every commit.
 2. **Write the hypothesis into the commit message** before writing the code. If
    you cannot say what you expect to happen, the experiment is not ready.
-3. **Judge it, then keep or kill.** Record the verdict in §10 with a date and a
-   sentence on *why*. A killed experiment with a written reason is a result; a
-   killed experiment with no note is wasted work that will be re-attempted in
-   six months.
-4. **`npm test` green before merge.** If an experiment needs the suite changed,
+3. **Judge it, then keep or revert.** Record the verdict in §10 with a date and
+   a sentence on *why*. A reverted experiment with a written reason is a result;
+   a reverted experiment with no note is wasted work that will be re-attempted
+   in six months.
+4. **`npm test` green before push.** If an experiment needs the suite changed,
    change it deliberately and say so.
 5. **`npm run perf` before and after** anything touching rendering or the scene
    graph, and put both numbers in the commit message.
-6. **Screenshot A/B** for anything that is supposed to look identical:
+6. **Rebuild and commit `index.html`** with any change to `src/`, or the
+   published game drifts from the source and the thing being played is not the
+   thing being judged.
+7. **Screenshot A/B** for anything that is supposed to look identical:
    `npm run compare -- old.html shots/before 424242` against the new build.
 
 ### What must not drift
