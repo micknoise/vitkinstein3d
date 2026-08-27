@@ -181,6 +181,30 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
       assert(port.space === port.target, 'and in the room that door opens onto (' + port.space + ')');
     }
 
+    // --- every doorway has to fit in the wall it is cut into ------------------
+    // A doorway placed past the end of its wall is not a doorway. The wall
+    // builder clips it, leaving a slot you can see through and not walk
+    // through, and whatever was on the other side is sealed off. The
+    // reachability check does not catch it: that reads the plan, where the two
+    // openings line up perfectly, not the geometry that gets built.
+    const fits = await p.evaluate(() => {
+      const T = 0.14, bad = [];
+      let checked = 0;
+      for (const [k, sp] of Object.entries(VK.spaces)) {
+        const [W, H, D] = sp.size;
+        for (const o of sp.openings) {
+          const along = (o.wall === 'east' || o.wall === 'west') ? D : W;
+          checked++;
+          if (Math.abs(o.at) + o.w / 2 > along / 2 - T)
+            bad.push(k + ' ' + o.wall + ' at ' + o.at + ' w ' + o.w + ' in a wall ' + along.toFixed(1) + ' long');
+          if (o.h > H) bad.push(k + ' ' + o.wall + ' is ' + o.h + ' high in a room ' + H + ' high');
+        }
+      }
+      return { checked, bad: bad.slice(0, 4), n: bad.length };
+    });
+    assert(fits.n === 0, 'every doorway fits inside the wall it is cut into (' + fits.checked + ' checked)' +
+      (fits.n ? ' — ' + fits.bad.join('; ') : ''));
+
     // --- you cannot fall out of the world by walking about -------------------
     // Twice now a portal has fired for a player nowhere near its doorway, and
     // both times the symptom was the same: you walk through an ordinary room,
@@ -296,34 +320,47 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
       const stand = a.pos.clone().addScaledVector(a.normal, 2.6);
       VK.go(stand.x, 0.36, stand.z, Math.atan2(-(a.pos.x - stand.x), -(a.pos.z - stand.z)), 0);
       VK.tick(30);
-      let best = null, bd = 1e9;
-      for (const g of grabs) {
-        const d = g.getWorldPosition(new T.Vector3()).distanceTo(stand);
-        if (d < bd) { bd = d; best = g; }
+      // Nearest first, but confirm it is still in your hands after turning back
+      // to face the portal: something picked up behind you is stretched past
+      // arm's reach by the turn and let go, and then the walk proves nothing.
+      const byDist = grabs
+        .map(g => ({ g, d: g.getWorldPosition(new T.Vector3()).distanceTo(stand) }))
+        .sort((x, y) => x.d - y.d).slice(0, 5);
+      if (!byDist.length) return { nothing: true };
+      let best = null;
+      for (const c of byDist) {
+        best = c.g;
+        const wp = best.getWorldPosition(new T.Vector3());
+        VK.aimAt(wp.x, wp.y, wp.z); VK.tick(2);
+        if (!VK.grab()) { best = null; continue; }
+        VK.aimAt(a.pos.x, a.pos.y, a.pos.z); VK.tick(20);
+        if (VK.held()) break;
+        best = null;
       }
-      if (!best) return { nothing: true };
-      const wp = best.getWorldPosition(new T.Vector3());
-      VK.aimAt(wp.x, wp.y, wp.z); VK.tick(2);
-      if (!VK.grab()) return { nograb: true };
-      VK.aimAt(a.pos.x, a.pos.y, a.pos.z); VK.tick(20);
+      if (!best) return { nograb: true };
 
-      // creep up until the object is through and the camera is not
-      let straddled = false, drift = 0;
-      for (let i = 0; i < 10; i++) {
-        VK.press('KeyW', true); VK.tick(12); VK.press('KeyW', false);
+      // Creep up until the object is through and the camera is not. The window
+      // is only as wide as your reach -- about a metre, and it shuts for good
+      // once the camera crosses and you are put through -- so step finely
+      // enough not to walk over it.
+      let straddled = false, drift = 0; const trace = [];
+      for (let i = 0; i < 24; i++) {
+        VK.press('KeyW', true); VK.tick(5); VK.press('KeyW', false);
         for (let f = 0; f < 3; f++) await raf();
         const body = best.userData.body;
         const objSide = a.normal.dot(best.getWorldPosition(new T.Vector3()).clone().sub(a.pos));
         const camSide = a.normal.dot(VK.camera.position.clone().sub(a.pos));
         // the mesh must be where its body is, every frame, portal pass or not
         drift = Math.max(drift, best.position.distanceTo(new T.Vector3(body.position.x, body.position.y, body.position.z)));
+        trace.push(objSide.toFixed(2) + '/' + camSide.toFixed(2) + (VK.held() ? '' : ' dropped'));
         if (objSide < 0 && camSide > 0) { straddled = true; break; }
       }
       VK.drop();
-      return { straddled, drift };
+      return { straddled, drift, trace };
     });
     if (!straddle.none && !straddle.nothing && !straddle.nograb) {
-      assert(straddle.straddled, 'you can carry an object up to a portal so that it is through and you are not');
+      assert(straddle.straddled, 'you can carry an object up to a portal so that it is through and you are not' +
+        (straddle.straddled ? '' : ' — obj/cam ' + straddle.trace.slice(-6).join(' ')));
       assert(straddle.drift < 0.01, 'and it stays in your hands while it straddles the fold (' + straddle.drift.toFixed(3) + 'm of drift)');
     }
 
@@ -386,13 +423,17 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
       const byDist = grabs
         .map(g => ({ g, d: g.getWorldPosition(new T.Vector3()).distanceTo(stand) }))
         .sort((x, y) => x.d - y.d).slice(0, 4);
+      // Confirm it is still in your hands *after* turning to face the portal,
+      // not before: an object picked up behind you is stretched past arm's
+      // reach by the turn and let go, and then the walk proves nothing.
       let holding = false;
       for (const c of byDist) {
         best = c.g;
         const wp = best.getWorldPosition(new T.Vector3());
         VK.aimAt(wp.x, wp.y, wp.z); await raf();
         if (!VK.grab()) continue;
-        for (let i = 0; i < 6; i++) await raf();
+        VK.aimAt(a.pos.x, 1.4, a.pos.z);
+        for (let i = 0; i < 8; i++) await raf();
         if (VK.held()) { holding = true; break; }
       }
       if (!holding) return { nograb: true };

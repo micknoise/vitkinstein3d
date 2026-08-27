@@ -13993,20 +13993,31 @@ function generateBuilding() {
         // It has to fit broadside against a house that is already standing, so
         // ask for a long one first and settle for less only if it will not go.
         for (const [lo, hi] of [[16, 21], [12, 17], [9, 13], [7, 10]]) {
-          const long = rr(lo, hi), narrow = rr(t.w[0], t.w[1]);
+          // wide enough that a 1.0m doorway fits in the end wall with something
+          // left either side: at the narrow end of the passage range the portal
+          // would be clipped, which is how a doorway becomes a slot
+          const long = rr(lo, hi), narrow = rr(Math.max(t.w[0], loopW + 0.5), t.w[1]);
           const W = alongX ? narrow : long, D = alongX ? long : narrow;
           const H = +rr(t.h[0], t.h[1]).toFixed(2);
 
           const doorW = Math.min(1.05, (alongX ? Math.min(parent.D, D) : Math.min(parent.W, W)) - 0.9);
           if (doorW < 0.75) continue;
 
+          // The doorway is cut at the corridor's centre, so the corridor may only
+          // slide as far along the parent's wall as keeps that centre inside the
+          // wall too -- the same bound the grow loop uses. Without it the
+          // corridor's middle ends up past the end of the wall it is joining,
+          // the opening is clipped down to a slot you can see through and not
+          // walk through, and the corridor is sealed off.
+          const limit = Math.max(0, Math.min(alongX ? parent.D : parent.W, alongX ? D : W) / 2 - doorW / 2 - 0.3);
+          const slide = rr(-limit, limit);
           let ox, oz;
           if (alongX) {
             ox = parent.ox + (side === 'east' ? 1 : -1) * (parent.W + W) / 2;
-            oz = parent.oz + rr(-1, 1) * Math.max(0, (D - parent.D) / 4);
+            oz = parent.oz + slide;
           } else {
             oz = parent.oz + (side === 'north' ? -1 : 1) * (parent.D + D) / 2;
-            ox = parent.ox + rr(-1, 1) * Math.max(0, (W - parent.W) / 4);
+            ox = parent.ox + slide;
           }
           if (overlaps(ox, oz, +W.toFixed(2), +D.toFixed(2))) continue;
 
