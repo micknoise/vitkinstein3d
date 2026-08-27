@@ -181,6 +181,31 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
       assert(port.space === port.target, 'and in the room that door opens onto (' + port.space + ')');
     }
 
+    // --- the side flags must describe where you are now ----------------------
+    // Every face remembers which side of it you were on. Crossing one moves you,
+    // which changes that answer for every other face at once. If a flag is left
+    // describing where you used to be, the next frame reads the difference as a
+    // crossing and puts you through a doorway on the other side of the house.
+    const sides = await p.evaluate(() => {
+      if (!VK.PORTALS.length) return { none: true };
+      const T = VK.THREE;
+      const a = VK.PORTALS[0];
+      const p0 = a.pos.clone().addScaledVector(a.normal, 1.2);
+      VK.go(p0.x, 0.36, p0.z);
+      VK.aimAt(a.pos.x, 0.36 + 1.28, a.pos.z);
+      VK.press('KeyW', true); VK.tick(90); VK.press('KeyW', false); VK.tick(1);
+      const cam = VK.camera.position;
+      const wrong = [];
+      VK.PORTALS.forEach((q, i) => {
+        const want = Math.sign(q.normal.dot(new T.Vector3().copy(cam).sub(q.pos))) || 1;
+        if (q.side !== want) wrong.push(i + ' says ' + q.side + ', you are on ' + want);
+      });
+      return { wrong };
+    });
+    if (!sides.none)
+      assert(sides.wrong.length === 0, 'every portal knows which side of it you are on after a crossing' +
+        (sides.wrong.length ? ' — ' + sides.wrong.join('; ') : ''));
+
     // --- a portal face must not show a view it did not just draw ------------
     // The quad samples its render target in screen space, so drawing it on a
     // frame where the view was not refreshed puts a picture taken from the old

@@ -15320,7 +15320,15 @@ function updatePortals() {
     const s = portalSide(p, pos);
     const sign = Math.sign(s) || 1;
     if (sign === p.side || !withinFrame(p, pos)) { p.side = sign; continue; }
-    if (p.side > 0 && sign <= 0) traverse(p);
+    // traverse() moves the player and sets every face's side from where they
+    // now are, so `pos` and every side computed from it are stale the moment it
+    // returns. Carrying on down the list would overwrite those correct flags
+    // with ones worked out from where the player used to be, and the next frame
+    // would read the difference as another crossing -- of whatever face the
+    // jump happened to line up with, however far away it was, because
+    // withinFrame only asks whether you are within the doorway's rectangle and
+    // not whether you are anywhere near its plane.
+    if (p.side > 0 && sign <= 0) { traverse(p); break; }
     p.side = sign;
   }
   updateBodyPortals();
