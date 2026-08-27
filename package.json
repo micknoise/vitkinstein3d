@@ -5,7 +5,9 @@
   "scripts": {
     "build": "node build.js",
     "test": "node test.js",
-    "shots": "node shots.js"
+    "shots": "node shots.js",
+    "perf": "node perf-probe.js",
+    "compare": "node shot-compare.js"
   },
   "keywords": [
     "three.js",

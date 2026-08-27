@@ -7,12 +7,68 @@ const dynamicPairs = [];   // {mesh, body} kept in sync every frame
 const grabbables = [];     // meshes you can pick up
 const doors = [];          // {pivot, body, open, t, ...}
 const flickerers = [];     // lights with a nervous disposition
-const spaceBounds = [];    // {key, min:[x,z], max:[x,z], fog}
-const allLights = [];      // culled by distance each frame -- forward rendering
-                           // shades every visible light per fragment
-let shadowBudget = 4;
+const spaceBounds = [];    // {key, min:[x,z], max:[x,z], fog, group}
+// LIGHTING.
+//
+// Forward rendering shades every visible light per fragment, and -- worse --
+// three.js bakes the *number* of lights into the shader program. Switching
+// lights on and off by distance therefore changes the program every time you
+// walk through a door, and every new count is a fresh batch of shader
+// compilations mid-play. That was the stutter.
+//
+// So the scene contains a fixed pool of point lights that are never added,
+// removed or hidden. The generated lights are kept as plain descriptions, and
+// each frame the few that actually contribute anything where the camera is get
+// copied into the pool. One light count, one set of programs, forever, and a
+// hard ceiling on what a pixel can cost.
+const allLights = [];            // descriptions: {pos, color, intensity, distance, decay}
+const LIGHT_POOL = [];           // the real THREE.PointLights, always visible
+const POOL_SIZE = 12;            // measured: the busiest room in the worst seed has
+                                 // eighteen lights in range, and losing the weakest six
+                                 // of those is not visible. Eight was, badly.
+const SHADOW_SLOTS = 2;          // the two brightest slots cast; see 40-main.js
+const _spillAt = new Set();      // one spill per doorway, not one per side
+
+// Shadow maps are no longer regenerated every render. A point light's shadow is
+// six full renders of the scene, and three of those was happening per frame --
+// once for the view and once for each portal. Now they are redrawn only when
+// something that casts one has actually moved.
+let shadowsDirty = true;
+
+function addLight(p, color, intensity, distance, decay) {
+  const src = {
+    pos: new THREE.Vector3(p[0], p[1], p[2]),
+    color: new THREE.Color(color),
+    intensity,
+    distance: distance || 10, decay: decay === undefined ? 2 : decay
+  };
+  allLights.push(src);
+  return src;
+}
+
+function initLightPool() {
+  for (let i = 0; i < POOL_SIZE; i++) {
+    const l = new THREE.PointLight(0xffffff, 0, 10, 2);
+    l.castShadow = i < SHADOW_SLOTS;
+    if (l.castShadow) {
+      l.shadow.mapSize.set(512, 512);
+      l.shadow.bias = -0.004;
+    }
+    scene.add(l);
+    LIGHT_POOL.push(l);
+  }
+}
 
 const WALL_T = 0.14;
+
+// Every room owns a Group, and everything built for that room goes in it. The
+// group never moves -- it sits at the origin and its contents stay in world
+// space -- so it is purely a switch. Turning a room off costs one boolean and
+// takes its several hundred draw calls, its shadow casters and its matrix
+// updates out of the frame with it.
+const roomGroups = {};
+let addTo = null;
+function attach(o) { (addTo || scene).add(o); return o; }
 
 // Texel density per metre. Tiles are 1024 and drawn at ~4m of detail, so these
 // are half what they were when the tiles were 512.
@@ -66,7 +122,7 @@ function mkBox(w, h, d, mat, pos, rotY, mass, opts) {
   mesh.rotation.y = rotY || 0;
   mesh.castShadow = opts.cast !== false;
   mesh.receiveShadow = true;
-  scene.add(mesh);
+  attach(mesh);
   if (opts.noPhysics) return { mesh };
   const body = new CANNON.Body({ mass: mass || 0, material: PHYS.obj });
   body.addShape(new CANNON.Box(new CANNON.Vec3(w / 2, h / 2, d / 2)));
@@ -84,7 +140,7 @@ function mkCyl(rt, rb, h, seg, mat, pos, mass, opts) {
   const mesh = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, seg), mat);
   mesh.position.set(pos[0], pos[1], pos[2]);
   mesh.castShadow = true; mesh.receiveShadow = true;
-  scene.add(mesh);
+  attach(mesh);
   if (opts.noPhysics) return { mesh };
   const body = new CANNON.Body({ mass: mass || 0, material: PHYS.obj });
   body.addShape(new CANNON.Cylinder(rt, rb, h, Math.min(seg, 10)));
@@ -118,7 +174,7 @@ function mkCompound(parts, pos, rotY, mass) {
     if (p.rot) q.setFromEuler(p.rot[0], p.rot[1], p.rot[2]);
     body.addShape(shape, new CANNON.Vec3(p.at[0], p.at[1], p.at[2]), q);
   }
-  scene.add(group);
+  attach(group);
   body.position.set(pos[0], pos[1], pos[2]);
   body.quaternion.setFromEuler(0, rotY || 0, 0);
   body.linearDamping = 0.03; body.angularDamping = 0.2;
@@ -134,7 +190,7 @@ function mkPlane(w, h, mat, pos, rotY, rotZ) {
   m.position.set(pos[0], pos[1], pos[2]);
   m.rotation.set(0, rotY || 0, rotZ || 0);
   m.receiveShadow = false; m.castShadow = false;
-  scene.add(m);
+  attach(m);
   return m;
 }
 
@@ -174,6 +230,8 @@ function buildWall(def, side, matName) {
     else if (side === 'south') { pos = [ox + mid, ymid, oz + D / 2 - WALL_T / 2]; w = len; d = WALL_T; }
     else if (side === 'west') { pos = [ox - W / 2 + WALL_T / 2, ymid, oz + mid]; w = WALL_T; d = len; }
     else { pos = [ox + W / 2 - WALL_T / 2, ymid, oz + mid]; w = WALL_T; d = len; }
+    // walls still cast: they are what keeps one room's lamp out of the next.
+    // the trim and linings stuck to them do not -- see buildTrim, buildLining.
     mkBox(w, hgt, d, scaledMat(matName, along, H), pos, 0, 0, { cast: true, jitter: true });
 
     // the anti-tiling layer: one big non-repeating smear per segment
@@ -195,7 +253,7 @@ function buildLining(def, side, holes) {
   for (const h of holes) {
     if (h.blocked) continue;
     const t = 0.035, dz = WALL_T;
-    const place = (w, hh, d, p) => mkBox(w, hh, d, lin, p, 0, 0, { noPhysics: true });
+    const place = (w, hh, d, p) => mkBox(w, hh, d, lin, p, 0, 0, { noPhysics: true, cast: false });
     if (side === 'north' || side === 'south') {
       const z = side === 'north' ? oz - D / 2 + WALL_T / 2 : oz + D / 2 - WALL_T / 2;
       place(h.w, t, dz, [ox + h.at, h.h - t / 2, z]);
@@ -225,9 +283,9 @@ function buildLining(def, side, holes) {
     else if (side === 'south') lp = [ox + h.at, h.h * 0.72, oz + D / 2 - WALL_T / 2];
     else if (side === 'west') lp = [ox - W / 2 + WALL_T / 2, h.h * 0.72, oz + h.at];
     else lp = [ox + W / 2 - WALL_T / 2, h.h * 0.72, oz + h.at];
-    const spill = new THREE.PointLight(0xffd6a0, 1.6, 3.2, 2);
-    spill.position.set(lp[0], lp[1], lp[2]);
-    scene.add(spill); allLights.push(spill);
+    // both rooms sharing a doorway ask for this light; only one of them gets it
+    const skey = lp[0].toFixed(1) + '|' + lp[2].toFixed(1);
+    if (!_spillAt.has(skey)) { _spillAt.add(skey); addLight(lp, 0xffd6a0, 1.6, 3.2, 2); }
   }
 
   // a doorway that goes nowhere: brick where the room should be
@@ -240,7 +298,7 @@ function buildLining(def, side, holes) {
     else pos = [ox + h.at, h.h / 2, oz + D / 2 - 0.02];
     const bw = (side === 'east' || side === 'west') ? 0.1 : h.w;
     const bd = (side === 'east' || side === 'west') ? h.w : 0.1;
-    mkBox(bw, h.h, bd, MAT.rust, pos, 0, 0);
+    mkBox(bw, h.h, bd, MAT.rust, pos, 0, 0, { cast: false });
   }
 }
 
@@ -280,13 +338,19 @@ function buildTrim(def, side, holes, matName) {
       else if (side === 'south') { pos = [ox + mid, run.y, oz + D / 2 - WALL_T - e / 2]; w = len; d = e; }
       else if (side === 'west') { pos = [ox - W / 2 + WALL_T + e / 2, run.y, oz + mid]; w = e; d = len; }
       else { pos = [ox + W / 2 - WALL_T - e / 2, run.y, oz + mid]; w = e; d = len; }
-      mkBox(w, run.t, d, run.mat, pos, 0, 0, { noPhysics: true });
+      mkBox(w, run.t, d, run.mat, pos, 0, 0, { noPhysics: true, cast: false });
     }
   }
 }
 
 function buildSpace(key, def) {
   const [W, H, D] = def.size, [ox, oz] = def.origin;
+
+  const group = new THREE.Group();
+  group.matrixAutoUpdate = false;
+  scene.add(group);
+  roomGroups[key] = group;
+  addTo = group;
 
   mkBox(W, 0.4, D, scaledMat(def.floor, W, D), [ox, -0.2, oz], 0, 0, { cast: false, jitter: true });
   mkBox(W, 0.3, D, scaledMat(def.ceiling, W, D), [ox, H + 0.15, oz], 0, 0, { cast: false, jitter: true });
@@ -308,52 +372,116 @@ function buildSpace(key, def) {
   for (const L of (def.lights || [])) {
     const p = [ox + L.pos[0], L.pos[1], oz + L.pos[2]];
     if (L.intensity <= 0) { deadFitting(p, L.tube, H); continue; }
-    const light = new THREE.PointLight(L.color, L.intensity, L.dist || 10, L.decay || 2);
-    light.position.set(p[0], p[1], p[2]);
-    if (shadowBudget > 0 && L.intensity > 3) {
-      light.castShadow = true; shadowBudget--;
-      light.shadow.mapSize.set(768, 768);
-      light.shadow.bias = -0.004;
-      light.shadow.camera.far = (L.dist || 10);
-    }
-    scene.add(light); allLights.push(light);
+    const light = addLight(p, L.color, L.intensity, L.dist || 10, L.decay || 2);
     if (L.flicker) flickerers.push({ light, base: L.intensity, amt: L.flicker, seed: R() * 100 });
     const glow = fitting(p, L.tube, H);
     if (L.flicker && glow) flickerers[flickerers.length - 1].glow = glow;
   }
 
-  spaceBounds.push({ key, min: [ox - W / 2, oz - D / 2], max: [ox + W / 2, oz + D / 2], fog: def.fog || 0.05 });
+  spaceBounds.push({ key, min: [ox - W / 2, oz - D / 2], max: [ox + W / 2, oz + D / 2], fog: def.fog || 0.05, group });
 
   for (const spec of (def.props || [])) placeProp(def, spec);
+
+  addTo = null;
+}
+
+// Two rooms are neighbours if a wall plane they share has openings in it that
+// line up -- the same test the reachability check in test.js makes. Built once,
+// at load, from the plan the generator emitted.
+const roomGraph = {};
+const OPPOSITE = { north: 'south', south: 'north', east: 'west', west: 'east' };
+
+function wallPlane(def, wall) {
+  const [W, , D] = def.size, [ox, oz] = def.origin;
+  if (wall === 'north') return oz - D / 2;
+  if (wall === 'south') return oz + D / 2;
+  if (wall === 'west') return ox - W / 2;
+  return ox + W / 2;
+}
+function openingAlong(def, o) {
+  return (o.wall === 'north' || o.wall === 'south') ? def.origin[0] + o.at : def.origin[1] + o.at;
+}
+
+function buildRoomGraph() {
+  const keys = Object.keys(SPACES);
+  for (const k of keys) roomGraph[k] = [];
+  for (let i = 0; i < keys.length; i++) {
+    for (let j = i + 1; j < keys.length; j++) {
+      const A = SPACES[keys[i]], B = SPACES[keys[j]];
+      let linked = false;
+      for (const oa of (A.openings || [])) {
+        if (oa.blocked || linked) continue;
+        for (const ob of (B.openings || [])) {
+          if (ob.blocked || ob.wall !== OPPOSITE[oa.wall]) continue;
+          if (Math.abs(wallPlane(A, oa.wall) - wallPlane(B, ob.wall)) > 0.5) continue;
+          if (Math.abs(openingAlong(A, oa) - openingAlong(B, ob)) > 0.4) continue;
+          linked = true; break;
+        }
+      }
+      if (linked) { roomGraph[keys[i]].push(keys[j]); roomGraph[keys[j]].push(keys[i]); }
+    }
+  }
+}
+
+// Positions never change after the building is up, so stop recomputing the
+// matrices of a thousand things that are standing still. Anything with a rigid
+// body of its own, and anything hung on a door, keeps updating.
+function freezeStatics() {
+  const moving = new Set();
+  for (const { mesh } of dynamicPairs) mesh.traverse(o => moving.add(o));
+  for (const d of doors) d.pivot.traverse(o => moving.add(o));
+  for (const key in roomGroups) {
+    const g = roomGroups[key];
+    g.updateMatrixWorld(true);
+    g.traverse(o => { if (o !== g && !moving.has(o)) o.matrixAutoUpdate = false; });
+  }
+}
+
+// A look ray reaches under three metres, and three.js will happily test every
+// mesh in the building against it -- invisible ones included, it does not check.
+// Hand it only the rooms that are switched on and near enough to touch. Walls
+// stay in the list, so you still cannot take a mug through one.
+const _rayRoots = [];
+function rayRoots(pos, far) {
+  _rayRoots.length = 0;
+  for (const b of spaceBounds) {
+    if (!b.group.visible) continue;
+    const dx = Math.max(b.min[0] - pos.x, 0, pos.x - b.max[0]);
+    const dz = Math.max(b.min[1] - pos.z, 0, pos.z - b.max[1]);
+    if (dx * dx + dz * dz < far * far) _rayRoots.push(b.group);
+  }
+  return _rayRoots;
 }
 
 function fitting(p, tube, H) {
+
+
   if (tube) {
     const t = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.06, 1.2), MAT.tube);
-    t.position.set(p[0], p[1] + 0.06, p[2]); scene.add(t);
+    t.position.set(p[0], p[1] + 0.06, p[2]); attach(t);
     const h = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.07, 1.35), MAT.plastic);
-    h.position.set(p[0], p[1] + 0.13, p[2]); h.castShadow = true; scene.add(h);
+    h.position.set(p[0], p[1] + 0.13, p[2]); attach(h);
     return t;
   }
   const b = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 8), MAT.bulb);
-  b.position.set(p[0], p[1], p[2]); scene.add(b);
+  b.position.set(p[0], p[1], p[2]); attach(b);
   const flexLen = Math.max(0.05, H - p[1] + 0.1);
   const flex = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, flexLen, 5), MAT.dark);
-  flex.position.set(p[0], p[1] + flexLen / 2, p[2]); scene.add(flex);
+  flex.position.set(p[0], p[1] + flexLen / 2, p[2]); attach(flex);
   return b;
 }
 
 function deadFitting(p, tube, H) {
   if (tube) {
     const h = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.07, 1.35), MAT.plastic);
-    h.position.set(p[0], p[1] + 0.13, p[2]); h.castShadow = true; scene.add(h);
+    h.position.set(p[0], p[1] + 0.13, p[2]); attach(h);
     return;
   }
   const b = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 8), MAT.dark);
-  b.position.set(p[0], p[1], p[2]); scene.add(b);
+  b.position.set(p[0], p[1], p[2]); attach(b);
   const flexLen = Math.max(0.05, H - p[1] + 0.1);
   const flex = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, flexLen, 5), MAT.dark);
-  flex.position.set(p[0], p[1] + flexLen / 2, p[2]); scene.add(flex);
+  flex.position.set(p[0], p[1] + flexLen / 2, p[2]); attach(flex);
 }
 
 function placeProp(def, spec) {
@@ -395,7 +523,7 @@ const PROPS = {
     const [w, d] = spec.size || [2.5, 1.8];
     const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.014, d), MAT.fabric);
     m.position.set(x, 0.008, z); m.rotation.y = spec.rot || 0; m.receiveShadow = true;
-    scene.add(m);
+    attach(m);
   },
 
   table: ({ x, z, rot }) => {
@@ -531,7 +659,7 @@ const PROPS = {
       const hook = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 0.07), MAT.metal);
       hook.position.set(i * 0.3, -0.04, 0.05); g.add(hook);
     }
-    scene.add(g);
+    attach(g);
   },
 
   picture: ({ def, spec }) => {
@@ -552,20 +680,17 @@ const PROPS = {
       new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(rr(0.05, 0.13), 0.25, rr(0.05, 0.24)), roughness: 0.9 }));
     inner.position.z = 0.021; g.add(inner);
     g.rotation.z = rr(-0.025, 0.025);
-    scene.add(g);
+    attach(g);
   },
 
   standardLamp: ({ x, z }) => {
     mkCyl(0.16, 0.19, 0.03, 14, MAT.metal, [x, 0.015, z], 0);
     mkCyl(0.018, 0.018, 1.42, 8, MAT.metal, [x, 0.72, z], 0);
     const shade = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.26, 0.28, 18, 1, true), MAT.shade);
-    shade.position.set(x, 1.52, z); scene.add(shade);
+    shade.position.set(x, 1.52, z); attach(shade);
     const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), MAT.bulb);
-    bulb.position.set(x, 1.48, z); scene.add(bulb);
-    const light = new THREE.PointLight(0xffa956, 6.0, 9, 2);
-    light.position.set(x, 1.48, z);
-    if (shadowBudget > 0) { light.castShadow = true; shadowBudget--; light.shadow.mapSize.set(768, 768); light.shadow.bias = -0.004; }
-    scene.add(light); allLights.push(light);
+    bulb.position.set(x, 1.48, z); attach(bulb);
+    const light = addLight([x, 1.48, z], 0xffa956, 6.0, 9, 2);
     flickerers.push({ light, base: 6.0, amt: 0.012, seed: R() * 10, glow: bulb });
   },
 
@@ -623,7 +748,7 @@ const PROPS = {
     const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: 0x33352e, roughness: 1, side: THREE.DoubleSide }));
     m.rotation.set(-Math.PI / 2, 0, rot); m.position.set(x, 0.02, z);
     m.castShadow = true; m.receiveShadow = true;
-    scene.add(m);
+    attach(m);
     mkBox(1.8, 0.9, 1.2, MAT.dark, [x, 0.45, z], rot, 0, { cast: true });
   },
 
@@ -652,7 +777,7 @@ const PROPS = {
   ball: ({ x, z, y }) => {
     const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.075, 16, 12), MAT.red);
     mesh.position.set(x, (y || 0) + 0.08, z); mesh.castShadow = true; mesh.receiveShadow = true;
-    scene.add(mesh);
+    attach(mesh);
     const body = new CANNON.Body({ mass: 0.5, material: PHYS.bouncy });
     body.addShape(new CANNON.Sphere(0.075));
     body.position.set(x, (y || 0) + 0.08, z);

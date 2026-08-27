@@ -6,7 +6,6 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
 
 (async () => {
   const b = await chromium.launch({
-    executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
     args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader']
   });
 
@@ -104,8 +103,7 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
     // the world working correctly, not the grab failing
     const grab = await p.evaluate(() => {
       const cands = [];
-      VK.scene.children.forEach(o => {
-        if (!o.userData.grabbable) return;
+      VK.grabbables.forEach(o => {
         cands.push({ o, d: o.position.distanceTo(VK.camera.position) });
       });
       cands.sort((a, b) => a.d - b.d);

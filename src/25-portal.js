@@ -16,8 +16,19 @@
 
 const PORTALS = [];              // faces, two per link
 let portalQuads = [];
-let portalRT = null, portalCam = null;
+let portalsBuilt = false, portalCam = null;
 const PORTAL_RANGE = 14;         // don't render a view you can't make out
+// A portal target is sampled in screen space, so what matters is its size
+// relative to the actual render, not to the window. Tie it to the pixel ratio
+// and the view through a doorway keeps the same sharpness it always had --
+// and follows the main render down when the machine is struggling.
+const PORTAL_RES = 0.32;
+function portalSize() {
+  const pr = renderer.getPixelRatio();
+  return [Math.max(320, Math.floor(innerWidth * pr * PORTAL_RES)),
+          Math.max(200, Math.floor(innerHeight * pr * PORTAL_RES))];
+}
+
 
 const FLIP = new THREE.Matrix4().makeRotationY(Math.PI);
 
@@ -65,9 +76,8 @@ function portalFrame(spaceKey, wall, at, w, h) {
 function buildPortals() {
   if (!PORTAL_LINKS.length) return;
 
-  const rtW = Math.max(320, Math.floor(innerWidth * 0.55));
-  const rtH = Math.max(200, Math.floor(innerHeight * 0.55));
-  portalRT = new THREE.WebGLRenderTarget(rtW, rtH, { depthBuffer: true, stencilBuffer: false });
+  const [rtW, rtH] = portalSize();
+  portalsBuilt = true;
   portalCam = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.05, 120);
 
   for (const link of PORTAL_LINKS) {
@@ -115,15 +125,16 @@ function makeFace(f) {
 
 // world transform that takes something standing in front of A to standing
 // in front of B, facing away from it
+const _pm = new THREE.Matrix4(), _pmInv = new THREE.Matrix4();
 function portalMatrix(A) {
-  const m = new THREE.Matrix4();
-  m.copy(A.other.anchor.matrixWorld).multiply(FLIP).multiply(new THREE.Matrix4().copy(A.anchor.matrixWorld).invert());
-  return m;
+  _pmInv.copy(A.anchor.matrixWorld).invert();
+  return _pm.copy(A.other.anchor.matrixWorld).multiply(FLIP).multiply(_pmInv);
 }
 
 // --- traversal --------------------------------------------------------------
 
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _q = new THREE.Quaternion();
+const _traverseM = new THREE.Matrix4();
 
 function portalSide(p, v) { return _v.copy(v).sub(p.pos).dot(p.normal); }
 
@@ -150,7 +161,7 @@ function updatePortals() {
 }
 
 function traverse(p) {
-  const M = portalMatrix(p);
+  const M = _traverseM.copy(portalMatrix(p));
   const dYaw = p.other.yaw + Math.PI - p.yaw;
 
   const np = new THREE.Vector3(playerBody.position.x, playerBody.position.y, playerBody.position.z).applyMatrix4(M);
@@ -178,22 +189,34 @@ function traverse(p) {
 // --- rendering ---------------------------------------------------------------
 
 const _frustum = new THREE.Frustum(), _mat4 = new THREE.Matrix4();
+const _clipPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), _clipList = [_clipPlane], _noClip = [];
 
-function renderPortals() {
-  if (!PORTALS.length || !renderer) return;
+// Which faces are worth rendering a view through. Split out from the render so
+// the room-visibility pass can know which far sides have to be switched on
+// before anything is drawn.
+const EMPTY = [];
+function visiblePortals() {
+  if (!PORTALS.length || !renderer) return EMPTY;
   _mat4.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
   _frustum.setFromProjectionMatrix(_mat4);
-
-  const visible = PORTALS.filter(p =>
+  return PORTALS.filter(p =>
     p.pos.distanceTo(camera.position) < PORTAL_RANGE &&
     portalSide(p, camera.position) > -0.2 &&
     _frustum.intersectsObject(p.mesh)
   ).slice(0, 2);
+}
 
+function renderPortals(visible) {
+  if (!renderer) return;
+  portalsDrawn = visible.length;
   if (!visible.length) return;
 
   for (const q of portalQuads) q.visible = false;
   const prevTarget = renderer.getRenderTarget();
+  // a doorway's worth of room, seen from several metres away, does not need
+  // real-time shadows -- and this is three quarters of what the pass cost
+  const hadShadows = renderer.shadowMap.enabled;
+  renderer.shadowMap.enabled = false;
 
   for (const p of visible) {
     const M = portalMatrix(p);
@@ -208,23 +231,24 @@ function renderPortals() {
     // clip away everything behind the far doorway, or you see the back of the
     // wall it is cut into
     const n = p.other.normal;
-    const plane = new THREE.Plane(n.clone(), -n.dot(p.other.pos) + 0.02);
-    renderer.clippingPlanes = [plane];
+    _clipPlane.normal.copy(n);
+    _clipPlane.constant = -n.dot(p.other.pos) + 0.02;
+    renderer.clippingPlanes = _clipList;
 
-    cullLights(portalCam.position);
+    applyLightPoolAt(portalCam.position);
     renderer.setRenderTarget(p.rt);
     renderer.clear();
     renderer.render(scene, portalCam);
   }
 
-  renderer.clippingPlanes = [];
+  renderer.shadowMap.enabled = hadShadows;
+  renderer.clippingPlanes = _noClip;
   renderer.setRenderTarget(prevTarget);
   for (const q of portalQuads) q.visible = true;
-  for (const p of PORTALS) p.mesh.visible = visible.includes(p) || true;
 }
 
 function resizePortals() {
-  if (!portalRT) return;
-  const w = Math.max(320, Math.floor(innerWidth * 0.55)), h = Math.max(200, Math.floor(innerHeight * 0.55));
+  if (!portalsBuilt) return;
+  const [w, h] = portalSize();
   for (const p of PORTALS) p.rt.setSize(w, h);
 }

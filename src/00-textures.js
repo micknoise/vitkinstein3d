@@ -67,7 +67,7 @@ function texFromCanvas(c, repeat) {
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 8;
+  t.anisotropy = 4;
   if (repeat) t.repeat.set(repeat[0], repeat[1]);
   return t;
 }
@@ -102,7 +102,7 @@ function normalFromCanvas(src, strength) {
   octx.putImageData(img, 0, 0);
   const t = new THREE.CanvasTexture(out);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.anisotropy = 8;
+  t.anisotropy = 2;
   return t;
 }
 

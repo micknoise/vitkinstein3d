@@ -82,10 +82,11 @@ function bodyRootOf(obj) {
   return null;
 }
 
+const _rayFrom = new THREE.Vector3(), _rayDir = new THREE.Vector3();
 function lookedAt(list) {
   camera.updateMatrixWorld(true);
-  lookRay.set(camera.getWorldPosition(new THREE.Vector3()), camera.getWorldDirection(new THREE.Vector3()));
-  const hits = lookRay.intersectObjects(list, true);
+  lookRay.set(camera.getWorldPosition(_rayFrom), camera.getWorldDirection(_rayDir));
+  const hits = lookRay.intersectObjects(list || rayRoots(_rayFrom, lookRay.far), true);
   // grime, decals and portal surfaces are scenery, not things
   for (const h of hits) if (!h.object.userData.noRay) return h;
   return null;
@@ -93,7 +94,7 @@ function lookedAt(list) {
 
 function tryGrab() {
   lookRay.far = 2.6;
-  const hit = lookedAt(scene.children);
+  const hit = lookedAt(null);
   if (!hit) return;
   const root = bodyRootOf(hit.object);
   if (!root) return;
@@ -158,7 +159,7 @@ function makeDoor(pos, rotY, w, h, hingeSign) {
   knob.position.set(hingeSign * (w - 0.09), h * 0.47, 0.04);
   pivot.add(knob);
   pivot.add(leaf);
-  scene.add(pivot);
+  attach(pivot);
 
   const body = new CANNON.Body({ mass: 0, material: PHYS.obj });
   body.addShape(new CANNON.Box(new CANNON.Vec3(w / 2, h / 2, 0.03)));
@@ -255,11 +256,14 @@ function updatePlayer(dt) {
   if (grounded && stepAccum > 0.78) { stepAccum = 0; Audio.step(); }
 }
 
-// what the crosshair is currently over
+// What the crosshair is currently over. This is a raycast, and the answer is a
+// single word on the HUD, so it does not need doing sixty times a second.
+let hoverTick = 0;
 function updateHover() {
   if (held) { hoverTarget = 'held'; return; }
+  if (hoverTick++ % 3) return;
   lookRay.far = 2.6;
-  const hit = lookedAt(scene.children);
+  const hit = lookedAt(null);
   if (!hit) { hoverTarget = null; return; }
   if (hit.object.userData.door || (hit.object.parent && hit.object.parent.userData && hit.object.parent.userData.door)) { hoverTarget = 'door'; return; }
   hoverTarget = bodyRootOf(hit.object) ? 'grab' : null;

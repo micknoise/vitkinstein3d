@@ -108,16 +108,86 @@ const Audio = (() => {
 
 // ---------------------------------------------------------------------------
 
-let hud, prompt, titleEl, clock, targetFog = 0.055, currentSpace = '';
+let hud, prompt, titleEl, clock, crossEl, helpEl, shownHover = 0, targetFog = 0.055, currentSpace = '';
 let stats = null;
+
+// --- instrumentation --------------------------------------------------------
+// ?perf=1 puts the numbers on screen. VK.info() returns the same thing to a
+// script. Everything the optimisation work is aimed at is in here: draw calls,
+// how many lights are actually being shaded, how many shader programs three has
+// had to compile, and what the worst frames cost.
+const QS = new URLSearchParams(location.search);
+const PERF = QS.has('perf');
+// The film grain is a fullscreen div blended over the canvas with mix-blend-mode
+// and repainted on a keyframe animation. That is a compositor cost this side of
+// WebGL, invisible to renderer.info, and it varies wildly by machine.
+// ?nograin=1 takes it out so it can be A/B'd on real hardware.
+if (QS.has('nograin')) addEventListener('DOMContentLoaded', () => {
+  const g = document.getElementById('grain');
+  if (g) g.style.display = 'none';
+});
+
+let perfEl = null;
+let visibleLights = 0, portalsDrawn = 0, roomsShown = 0;
+const frameTimes = new Float32Array(120);
+let frameIdx = 0, lastFrameAt = 0, perfShownAt = 0;
+
+function frameStats() {
+  const sorted = Array.from(frameTimes).filter(v => v > 0).sort((a, b) => a - b);
+  if (!sorted.length) return { mean: 0, p99: 0 };
+  let sum = 0;
+  for (const v of sorted) sum += v;
+  return {
+    mean: sum / sorted.length,
+    p99: sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.99))]
+  };
+}
+
+function perfInfo() {
+  const r = renderer.info;
+  const f = frameStats();
+  return {
+    calls: r.render.calls, triangles: r.render.triangles,
+    programs: r.programs ? r.programs.length : 0,
+    textures: r.memory.textures, geometries: r.memory.geometries,
+    visibleLights, portalsDrawn, roomsShown, rooms: SPACE_ORDER.length,
+    mean: +f.mean.toFixed(2), p99: +f.p99.toFixed(2),
+    fps: f.mean ? Math.round(1000 / f.mean) : 0
+  };
+}
+
+function updatePerf(now) {
+  if (lastFrameAt) { frameTimes[frameIdx] = now - lastFrameAt; frameIdx = (frameIdx + 1) % frameTimes.length; }
+  lastFrameAt = now;
+  if (!PERF || now - perfShownAt < 250) return;
+  perfShownAt = now;
+  if (!perfEl) {
+    perfEl = document.createElement('pre');
+    perfEl.style.cssText = 'position:fixed;left:8px;top:8px;margin:0;padding:6px 9px;z-index:99;' +
+      'font:11px/1.45 "Courier New",monospace;color:#cfe0a0;background:rgba(0,0,0,.55);pointer-events:none;white-space:pre';
+    document.body.appendChild(perfEl);
+  }
+  const i = perfInfo();
+  perfEl.textContent =
+    i.fps + ' fps   ' + i.mean.toFixed(1) + 'ms  (worst ' + i.p99.toFixed(1) + ')\n' +
+    'draw calls  ' + i.calls + '\n' +
+    'triangles   ' + (i.triangles / 1000).toFixed(0) + 'k\n' +
+    'lights lit  ' + i.visibleLights + '\n' +
+    'portals     ' + i.portalsDrawn + '\n' +
+    'rooms on    ' + i.roomsShown + ' / ' + i.rooms + '\n' +
+    'programs    ' + i.programs + '\n' +
+    'textures    ' + i.textures + '   geo ' + i.geometries + '\n' +
+    'room        ' + currentSpace;
+}
 
 function init() {
   const canvas = document.getElementById('c');
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
+  renderer.setPixelRatio(pixelRatio = PR_MAX);
   renderer.setSize(innerWidth, innerHeight);
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
+  renderer.shadowMap.autoUpdate = false;      // we say when; see refreshShadows()
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.15;
 
@@ -134,10 +204,13 @@ function init() {
 
   stats = generateBuilding();
   for (const key of SPACE_ORDER) buildSpace(key, SPACES[key]);
+  initLightPool();
 
   initPlayer();
   buildPortals();
   initPortalSides();
+  buildRoomGraph();
+  freezeStatics();
   initInput(canvas);
 
   for (const { body } of dynamicPairs) {
@@ -148,6 +221,8 @@ function init() {
   }
 
   hud = document.getElementById('hud');
+  crossEl = document.getElementById('cross');
+  helpEl = document.getElementById('help');
   prompt = document.getElementById('prompt');
   titleEl = document.getElementById('title');
   clock = new THREE.Clock();
@@ -193,6 +268,8 @@ function init() {
       if (tilt !== undefined) pitch = tilt;
       updatePlayer(0.016);
       initPortalSides();
+      updateSpace();
+      updateRoomVisibility(EMPTY);
     },
     goSpace(key, dy) {
       const s = SPACES[key]; if (!s) return false;
@@ -218,7 +295,20 @@ function init() {
       yaw = Math.atan2(-dx, -dz); pitch = Math.atan2(dy, h);
       updatePlayer(0.001);
     },
-    count() { return { bodies: world.bodies.length, meshes: scene.children.length, grabbable: grabbables.length, rooms: SPACE_ORDER.length, portals: PORTALS.length }; }
+    get grabbables() { return grabbables; },
+    lights() { return allLights; },          // the descriptions
+    pool() { return LIGHT_POOL; },           // the twelve that are actually on
+    get rooms() { return roomGroups; },
+    count() {
+      let meshes = 0;
+      scene.traverse(o => { if (o.isMesh) meshes++; });
+      return { bodies: world.bodies.length, meshes, grabbable: grabbables.length,
+               rooms: SPACE_ORDER.length, portals: PORTALS.length,
+               lights: allLights.length, pool: POOL_SIZE, shown: roomsShown };
+    },
+    get renderer() { return renderer; },
+    info() { return perfInfo(); },
+    resetInfo() { frameTimes.fill(0); frameIdx = 0; lastFrameAt = 0; }
   };
 
   animate();
@@ -242,17 +332,131 @@ function updateSpace() {
   Audio.setTone(SPACES[sp.key]._type === 'warehouse' ? 0.13 : 0.09);
 }
 
-// forward rendering shades every visible light per fragment, so light what is
-// near enough to matter and nothing else
-function cullLights(pos) {
+// Fill the fixed light pool from wherever the camera is (see 20-build.js for
+// why the pool exists). Score is the light's actual contribution at that point
+// -- brightness over the square of the distance -- so the ones that win are the
+// ones you could tell were missing.
+const _slotSrc = new Array(POOL_SIZE).fill(null);   // which source each slot holds
+const _cand = [];
+
+function pickLights(pos) {
+  _cand.length = 0;
   for (const l of allLights) {
-    const d2 = (l.position.x - pos.x) ** 2 + (l.position.z - pos.z) ** 2;
-    const r = (l.distance || 10) + 6;
-    l.visible = d2 < r * r;
+    const dx = l.pos.x - pos.x, dy = l.pos.y - pos.y, dz = l.pos.z - pos.z;
+    const d2 = dx * dx + dy * dy + dz * dz;
+    if (d2 > l.distance * l.distance) continue;      // past its range it is off
+    l._score = l.intensity / (1 + d2);               // what it is actually worth here
+    _cand.push(l);
+  }
+  _cand.sort((a, b) => b._score - a._score);
+  if (_cand.length > POOL_SIZE) _cand.length = POOL_SIZE;
+  return _cand;
+}
+
+function writeSlot(i, src) {
+  const l = LIGHT_POOL[i];
+  if (!src) { l.intensity = 0; return; }
+  l.position.copy(src.pos);
+  l.color.copy(src.color);
+  l.intensity = src.intensity;
+  l.distance = src.distance;
+  l.decay = src.decay;
+}
+
+// The steady, player-following version: slots keep hold of the source they had
+// so the pool does not reshuffle every frame, which would make the shadows jump.
+function updateLightPool(pos) {
+  const want = pickLights(pos);
+  const taken = new Array(POOL_SIZE).fill(false);
+  const placed = new Set();
+  for (let i = 0; i < POOL_SIZE; i++) {
+    if (_slotSrc[i] && want.includes(_slotSrc[i])) { taken[i] = true; placed.add(_slotSrc[i]); }
+    else _slotSrc[i] = null;
+  }
+  let next = 0;
+  for (let i = 0; i < POOL_SIZE; i++) {
+    if (taken[i]) continue;
+    while (next < want.length && placed.has(want[next])) next++;
+    _slotSrc[i] = next < want.length ? want[next++] : null;
+    if (_slotSrc[i]) { placed.add(_slotSrc[i]); shadowsDirty = true; }
+  }
+  for (let i = 0; i < POOL_SIZE; i++) writeSlot(i, _slotSrc[i]);
+  visibleLights = want.length;
+}
+
+// The throwaway version, for a portal view: no slot memory, no shadows to keep
+// still, just put the right lights in for one render.
+function applyLightPoolAt(pos) {
+  const want = pickLights(pos);
+  for (let i = 0; i < POOL_SIZE; i++) writeSlot(i, want[i] || null);
+}
+
+// Redraw the shadow maps only when a caster has moved -- a door swinging, or
+// something you have picked up or thrown that has not yet settled -- and never
+// on consecutive frames.
+let shadowFrame = 0;
+function refreshShadows() {
+  shadowFrame++;
+  if (!shadowsDirty) {
+    for (const { body } of dynamicPairs) if (!body.sleepState) { shadowsDirty = true; break; }
+    if (!shadowsDirty) for (const d of doors) if (Math.abs(d.t - (d.open ? 1 : 0)) > 0.001) { shadowsDirty = true; break; }
+  }
+  if (shadowsDirty && (shadowFrame & 1) === 0) {
+    renderer.shadowMap.needsUpdate = true;
+    shadowsDirty = false;
   }
 }
 
+// --- what is switched on ----------------------------------------------------
+// The room you are in, whatever it opens onto, and -- one step further out --
+// any room beyond that which is actually in front of you. Plus the far side of
+// any portal being rendered, and its neighbours, because that view is a real
+// render of a real place and the place has to be there for it.
+const _visRooms = new Set();
+const _shown = new Set();
+const _roomBox = new THREE.Box3();
+const _roomFrustum = new THREE.Frustum();
+const _roomMat = new THREE.Matrix4();
+
+function addRoomAndNeighbours(key, depth) {
+  if (!key || _visRooms.has(key)) return;
+  _visRooms.add(key);
+  if (depth <= 0) return;
+  for (const n of (roomGraph[key] || [])) {
+    if (_visRooms.has(n)) continue;
+    if (depth === 1 && !roomInView(n)) continue;   // two rooms out, only if you could see it
+    addRoomAndNeighbours(n, depth - 1);
+  }
+}
+
+function roomInView(key) {
+  const b = spaceBounds.find(s => s.key === key);
+  if (!b) return false;
+  const def = SPACES[key];
+  _roomBox.min.set(b.min[0], 0, b.min[1]);
+  _roomBox.max.set(b.max[0], def.size[1], b.max[1]);
+  return _roomFrustum.intersectsBox(_roomBox);
+}
+
+function updateRoomVisibility(portals) {
+  _roomMat.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+  _roomFrustum.setFromProjectionMatrix(_roomMat);
+
+  _visRooms.clear();
+  addRoomAndNeighbours(currentSpace || START.space, 2);
+  for (const p of portals) addRoomAndNeighbours(p.other.space, 1);
+
+  // only touch the ones that changed
+  for (const key of _visRooms) if (!_shown.has(key)) roomGroups[key].visible = true;
+  for (const key of _shown) if (!_visRooms.has(key)) roomGroups[key].visible = false;
+  _shown.clear();
+  for (const key of _visRooms) _shown.add(key);
+  roomsShown = _visRooms.size;
+}
+
 function syncBodies() {
+
+
   for (const { mesh, body } of dynamicPairs) {
     mesh.position.copy(body.position);
     mesh.quaternion.copy(body.quaternion);
@@ -262,6 +466,9 @@ function syncBodies() {
 let acc = 0;
 function animate() {
   requestAnimationFrame(animate);
+  const nowMs = performance.now();
+  updatePerf(nowMs);
+  adaptResolution(nowMs);
   const dt = Math.min(clock.getDelta(), 0.05);
 
   updatePlayer(dt);
@@ -274,12 +481,13 @@ function animate() {
 
   updatePortals();
   syncBodies();
+  refreshShadows();
 
   const t = performance.now() * 0.001;
   for (const f of flickerers) {
     const n = Math.sin(t * 11.3 + f.seed) * Math.sin(t * 3.7 + f.seed * 2.1) * Math.sin(t * 27.1 + f.seed);
     const drop = (f.amt > 0.2 && Math.sin(t * 1.7 + f.seed) > 0.986) ? 0.15 : 1;
-    f.light.intensity = Math.max(0, f.base * (1 + n * f.amt) * drop);
+    f.light.intensity = Math.max(0, f.base * (1 + n * f.amt) * drop);   // a description; the pool picks it up
   }
 
 
@@ -287,19 +495,48 @@ function animate() {
   scene.fog.density += (targetFog - scene.fog.density) * 0.03;
 
   updateHover();
-  document.getElementById('cross').className = hoverTarget ? 'on' : '';
-  document.getElementById('help').textContent =
-    hoverTarget === 'grab' ? 'take' :
-    hoverTarget === 'door' ? 'open' :
-    hoverTarget === 'held' ? 'drop · right-click to throw' : '';
+  if (hoverTarget !== shownHover) {
+    shownHover = hoverTarget;
+    crossEl.className = hoverTarget ? 'on' : '';
+    helpEl.textContent =
+      hoverTarget === 'grab' ? 'take' :
+      hoverTarget === 'door' ? 'open' :
+      hoverTarget === 'held' ? 'drop · right-click to throw' : '';
+  }
 
   camera.updateMatrixWorld(true);
-  renderPortals();
-  cullLights(camera.position);
+  const shownPortals = visiblePortals();
+  updateRoomVisibility(shownPortals);
+  renderPortals(shownPortals);
+  updateLightPool(camera.position);
   renderer.render(scene, camera);
 }
 
+// If the machine cannot hold the frame, give it fewer pixels rather than a
+// worse building. Comes back up on its own when the room gets cheaper.
+// ?pr=N pins the ratio and turns the adaptation off, so a rendering change can
+// be compared against another build without this moving underneath it.
+const PR_PIN = QS.has('pr') ? parseFloat(QS.get('pr')) : 0;
+const PR_MAX = PR_PIN || Math.min(devicePixelRatio, 1.25), PR_MIN = 0.75;
+let pixelRatio = PR_MAX, prCheckedAt = 0;
+
+function adaptResolution(now) {
+  if (PR_PIN || now - prCheckedAt < 1000) return;
+  prCheckedAt = now;
+  const mean = frameStats().mean;
+  if (!mean) return;
+  let next = pixelRatio;
+  if (mean > 18 && pixelRatio > PR_MIN) next = Math.max(PR_MIN, pixelRatio - 0.25);
+  else if (mean < 12 && pixelRatio < PR_MAX) next = Math.min(PR_MAX, pixelRatio + 0.25);
+  if (next === pixelRatio) return;
+  pixelRatio = next;
+  renderer.setPixelRatio(pixelRatio);
+  renderer.setSize(innerWidth, innerHeight);
+  resizePortals();
+}
+
 let promptTimer = null;
+
 function showPrompt(text, ms) {
   prompt.textContent = text;
   prompt.style.opacity = '1';
