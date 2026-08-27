@@ -2,13 +2,19 @@
 
 **Build:** v0.2 — generated buildings, non-euclidean space
 **Date:** 27 August 2026
-**Deliverable:** `vitkinstein3d.html` — one self-contained file, ~1.1 MB, works offline
+**Deliverable:** `index.html` — one self-contained file, ~1.1 MB, works offline
 **Purpose of this document:** a checklist a human operator can assess the build against, without reading the source.
 
 **Changes since v0.1:** the building is now generated rather than authored (§3.1); doorways can be
 portals, so space no longer adds up (§3.2); visible texture tiling addressed by larger tiles, a
 non-repeating grime layer and a decal pass (§3.7); skirting and dado rails stop at doorways (F27);
 seeds make any building reproducible (F1).
+
+**Changes since the v0.2 tag:** objects go through portals rather than only the player (F15a–F15b);
+portal faces no longer show a view they did not just render (F15c); objects are drawn in the room
+they are in rather than the room they were built in (F15d); statics are merged per room and per
+material, and the cost is now held to a budget the build fails on (N4, N6); a seed reproduces a
+building's surfaces and not only its layout (N7).
 
 ---
 
@@ -75,6 +81,10 @@ Each requirement has an acceptance test an operator can run by hand.
 | **F13** | Walking through a portal is seamless: you are moved and turned so that you continue in the direction you were walking, keeping your speed and whatever you are carrying. | Walk through at an angle, carrying a mug. You should not be able to feel the seam. |
 | **F14** | The space beyond a portal is genuinely impossible — the warehouse is larger than the entire house and reached through an internal wall. | Pace out the room you entered from, then the warehouse. |
 | **F15** | Portals never open onto the back of an existing room's wall. | Every portal leads somewhere. |
+| **F15a** | Objects go through portals too, not only the player. A thrown object is moved, turned and keeps its speed and spin, and arrives in the room on the far side. | Throw a mug through one and watch where it lands. Roll something through and it keeps rolling. |
+| **F15b** | An object held while crossing stays visible the whole way. What you carry reaches the plane about a metre before your eyes do, and for those steps it is drawn through the doorway rather than hidden behind it. | Walk slowly through a portal carrying something and watch it. |
+| **F15c** | A portal opening never shows a view it did not just render. From behind its own plane, or beyond the two-face budget, it shows the room rather than a stale image. | Walk through, turn round, and back up into the doorway. |
+| **F15d** | An object is drawn in the room it is in, not the room it was built in. Objects left in other rooms as markers are there when you return. | Leave something in three rooms, walk a loop, and come back. |
 
 ### 3.3 Movement and body
 
@@ -133,14 +143,16 @@ Each requirement has an acceptance test an operator can run by hand.
 | **N1** | Single HTML file, no build step, no server, no network. | Open it from the desktop with the wifi off. |
 | **N2** | Clean console during load and play. | Devtools. |
 | **N3** | Loads to playable in a few seconds. Generation, texture synthesis and normal-map derivation all happen at load. | Time it. |
-| **N4** | Runs at monitor refresh on a GPU of the last decade at 1080p. Point lights are culled by distance every frame — including for the camera inside a portal — and at most three cast shadows. At most two portals render per frame, each one an extra pass at 55% resolution, only when within 14 m and on screen. | Move around with a frame counter. See §5 on measurement. |
+| **N4** | Runs at monitor refresh on a GPU of the last decade at 1080p. Rooms are drawn a group at a time — the one you are in, the ones it opens onto, and anything two steps out that is on screen. Everything static in a room is merged to one mesh per material. Lights are descriptions filled into a pool of twelve each frame, scored by contribution at the camera, two of which cast shadows; shadow maps redraw only when a caster has moved. Pixel ratio adapts between 0.75 and 1.25. At most two portals render per frame, each an extra pass at 32% of the render, only within 14 m and on screen. | Move around with a frame counter. See §5 on measurement. |
+| **N6** | The cost does not creep back. `npm run perf` reports draw calls and triangles per room and exits non-zero above a stated budget — 280 draw calls and 11,000 triangles per room, 640 geometries in the scene. | `npm run perf all` across the five test seeds. |
+| **N7** | A seed reproduces a building exactly, surfaces included: the same number gives the same layout, the same wear and the same cracks in the same plaster. | Load `?seed=424242` twice and compare. `npm run compare` and `npm run diff` do it by pixel. |
 | **N5** | Chromium, Firefox, Safari on desktop. Pointer lock makes it desktop-only by design. | Two of the three. |
 
 ---
 
 ## 5. Verified in headless Chromium
 
-`node test.js` runs eighteen checks against **five different seeds** — the point being that a
+`node test.js` runs twenty-four checks against **five different seeds** — the point being that a
 generator has to be correct for buildings nobody has looked at, not just the one in the screenshot.
 All pass. The suite covers:
 
@@ -152,6 +164,11 @@ All pass. The suite covers:
 - **F27 geometrically**: a ray is fired through every doorway in every room with trim, at skirting
   height and dado height, and must reach the far side unobstructed (140+ rays per run)
 - **F13**: walking into a portal and arriving in the room on the far side
+- **F15a**: an object pushed into a portal coming out on the far side rather than the near one
+- **F15b**: carrying an object up to a portal until it is through and you are not, and it staying
+  in your hands, drawn, with no drift
+- **F15c**: a portal face drawn from in front of it and not from behind its own plane
+- **F15d**: an object carried through a portal still being drawn on the other side
 - objects settling rather than jittering
 - a clean console
 
@@ -205,18 +222,15 @@ rendering, `VK.openAll()` opens every door, `VK.spaces` is the plan, `VK.count()
 
 1. **Portals are single-bounce.** A portal seen through another portal renders black. Recursion
    would be a second render pass per level of depth; worth it only if the design uses it.
-2. **Objects do not pass through portals.** Throw a mug through one and it stops at the wall
-   behind. The player and what they are carrying are transformed by hand; physics bodies in
-   general are not.
-3. **Doors are animated, not simulated.** A leaf becomes non-solid the moment it moves, so you
+2. **Doors are animated, not simulated.** A leaf becomes non-solid the moment it moves, so you
    cannot push one with an object or trap yourself.
-4. **The layout is one storey and rectangular.** Rooms are axis-aligned boxes; there are no stairs,
+3. **The layout is one storey and rectangular.** Rooms are axis-aligned boxes; there are no stairs,
    no L-shaped rooms, no windows. The impossibility is entirely in the portals.
-5. **No inventory and no gating.** Every object is takeable and nothing is required.
-6. **Shadows are rationed.** Three lights cast shadows, chosen by build order rather than by what
-   would look best.
-7. **Sound is monophonic.** No spatialisation.
-8. **Desktop only.** Pointer lock excludes touch; no gamepad.
+4. **No inventory and no gating.** Every object is takeable and nothing is required.
+5. **Shadows are rationed.** Two lights cast shadows, the two brightest slots of the pool at the
+   camera, and the maps redraw only when a caster has moved — never on consecutive frames.
+6. **Sound is monophonic.** No spatialisation.
+7. **Desktop only.** Pointer lock excludes touch; no gamepad.
 
 ---
 
@@ -225,10 +239,10 @@ rendering, `VK.openAll()` opens every door, `VK.spaces` is the plan, `VK.count()
 | Area | Requirements | Pass / Fail | Notes |
 |---|---|---|---|
 | The generator | F1–F9 | | |
-| Non-euclidean space | F10–F15 | | |
+| Non-euclidean space | F10–F15d | | |
 | Movement and body | F16–F19 | | |
 | Hands | F20–F24 | | |
 | Doors | F25–F27 | | |
 | The world | F28–F30 | | |
 | Surfaces and atmosphere | F31–F38 | | |
-| Non-functional | N1–N5 | | |
+| Non-functional | N1–N7 | | |

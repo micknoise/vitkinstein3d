@@ -12,12 +12,13 @@ what would make us drop it.
 
 ## 1. Where this is
 
-At `f870b2e` (local and `origin/main` agree; the committed `index.html` is a
-faithful build of the committed `src/`, hash-checked).
+`main` is the only branch; local and `origin/main` agree, and the committed
+`index.html` is a faithful build of the committed `src/`.
 
-Verified on the current build, five seeds, headless: 18/18 checks pass —
+Verified on the current build, five seeds, headless: 24/24 checks pass —
 generation, no room overlaps, every room reachable, the body, the hands, doors,
-no trim across a doorway, portal traversal, objects settling, clean console.
+no trim across a doorway, portal traversal, objects and carried objects through
+portals, portal faces not showing stale views, objects settling, clean console.
 
 The optimisation pass is real and it changed the shape of the engine, so it is
 worth writing down what the architecture now *is*:

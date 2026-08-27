@@ -57,7 +57,9 @@ tables they belong on — so nothing lands inside anything else and the doorways
 They are portals. Each face renders the view out of its twin into a texture, mapped back onto the
 opening in screen space with an oblique clip plane, so you *see* the other place through the doorway
 and it parallaxes correctly as you move. Walk through and you are moved and turned by the transform
-that takes one frame to the other, keeping your speed and whatever you are carrying.
+that takes one frame to the other, keeping your speed and whatever you are carrying. Objects go
+through too — throw a mug at one and it arrives, turning as the space turns — which matters more
+than it sounds, because leaving objects in rooms is how people work out what the building is doing.
 
 This is what lets space stop adding up. Because the two sides are never connected in world space,
 the generator can put the far side anywhere at all — including a warehouse larger than the entire
@@ -74,7 +76,8 @@ house, reached through an internal wall.
 ```sh
 npm install
 npm run build      # bundles three.js, cannon-es and src/ into index.html
-npm test           # 18 checks against 5 different seeds, headless
+npm test           # 24 checks against 5 different seeds, headless
+npm run perf       # draw calls and triangles per room; fails over budget
 npm run shots 1234 # renders every room and every portal of that building
 ```
 
@@ -103,13 +106,26 @@ There is a console handle on `window.VK`: `VK.go(x,y,z,yaw,pitch)` teleports, `V
 to a room, `VK.aimAt(x,y,z)` points the camera, `VK.tick(n)` runs *n* physics frames without
 rendering, `VK.openAll()` opens every door, `VK.spaces` is the plan.
 
+## Keeping it fast
+
+The building is drawn a room at a time. Rooms are groups, and only the one you are in, the ones it
+opens onto and anything two steps out that is actually on screen get drawn at all. Everything in a
+room that never moves is merged into one piece of geometry per material, which took the worst room
+from 334 draw calls to 173 — objects you can pick up stay separate, because you navigate by them.
+
+Lights are descriptions rather than lights: a fixed pool of twelve is filled each frame from
+wherever the camera is, scored by what each one actually contributes there, and two of them cast
+shadows. Shadow maps are redrawn only when something has moved. Pixel ratio adapts to keep the
+frame. `npm run perf` reports draw calls and triangles per room and **fails** above a stated budget,
+so none of this quietly comes undone.
+
 ## Known limitations
 
 - Portals are single-bounce: one seen through another renders black.
-- Objects do not pass through portals — only you and what you are holding.
 - Doors are animated rather than simulated; a leaf stops being solid the moment it moves.
 - One storey, axis-aligned rooms, no windows. The impossibility is entirely in the portals.
 - No inventory and no gating yet: everything is takeable and nothing is required.
+- Sound is monophonic — the distant thump is distant in timbre only.
 
 ## Built with
 
