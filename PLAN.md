@@ -49,16 +49,45 @@ it is E1 below. Everything else has headroom.
 
 ---
 
-## 2. How to work on this
+## 2. What players actually do — observed, 27 August 2026
+
+The prototype has been played. What emerged, unprompted and undesigned:
+
+1. They work out that they are walking around an impossible architecture.
+2. They start **placing objects in rooms as markers**, so they can tell whether
+   they have been somewhere before.
+3. Then they realise what is happening.
+
+This is the most important paragraph in the document, and none of it was
+designed. Three things follow, and they govern everything below.
+
+**The physics objects are the navigation instrument.** Not a toy and not set
+dressing — the thing players reach for to think with. Anything that makes
+objects less reliable, less takeable or less placeable damages the central
+mechanic. And anything that does the marking *for* the player — footprints,
+breadcrumbs, a map, a compass, room names — takes the discovery away and does it
+worse than they do.
+
+**Realisation is the reward.** No fail state, nothing to collect: the arc is
+entirely epistemic. Confusion → method → understanding. Judge every experiment
+on whether it lengthens and deepens that arc, not on whether it adds content.
+
+**The house now has something to respond to.** A player who marks a room has
+declared what they believe. That is the best material the uncanny could ask for,
+and the easiest thing in the building to ruin. See A1.
+
+---
+
+## 3. How to work on this
 
 1. **One experiment per branch**, named `exp/<short-name>`. The branch exists to
    be thrown away; that is the point of it.
 2. **Write the hypothesis into the commit message** before writing the code. If
    you cannot say what you expect to happen, the experiment is not ready.
-3. **Judge it, then keep or kill.** Record the verdict in §6 of this file with a
-   date and a sentence on *why*. A killed experiment with a written reason is a
-   result; a killed experiment with no note is wasted work that will be
-   re-attempted in six months.
+3. **Judge it, then keep or kill.** Record the verdict in §10 with a date and a
+   sentence on *why*. A killed experiment with a written reason is a result; a
+   killed experiment with no note is wasted work that will be re-attempted in
+   six months.
 4. **`npm test` green before merge.** If an experiment needs the suite changed,
    change it deliberately and say so.
 5. **`npm run perf` before and after** anything touching rendering or the scene
@@ -73,37 +102,51 @@ deliberately, but nothing should erode them by accident:
 
 - **No narrative, no NPCs, no combat, no fail state.** The subject is perception
   and the uncanny. Anything that explains the house makes it less frightening.
+- **No navigation aids.** No map, no compass, no markers the game places. §2 is
+  the reason: players build their own, and that is the game.
 - **Rooms stay recognisable.** The dread depends on a specific front room being
   where a front room cannot be. Abstraction is the enemy of this, not the aim.
-- **One self-contained file, no external requests, no image assets.** Every
-  surface is drawn at load.
-- **The vocabulary is authored, the building is generated.** Do not replace room
-  types with noise.
+- **Objects stay dependable.** Takeable, placeable, and where you left them,
+  unless an experiment is deliberately and knowingly testing otherwise.
+- **One self-contained file, no external requests, no image assets.**
+- **The vocabulary is authored, the building is generated.**
 - **Slow is a feature.** 2.15 m/s. Do not speed the player up to make testing
   more convenient.
-- **Load stays a few seconds.** Generation and texture synthesis both happen at
-  load; new work there is charged to the player's patience.
+- **Load stays a few seconds.**
 
 ---
 
-## 3. Track A — the house knows you were here
+## 4. Track A — the house knows you were here
 
-The strongest unexplored ground, and the closest to what the thing is about.
-Nothing here needs new engine capability; it needs the generator and the room
-groups it already has.
+The strongest unexplored ground, and now the best understood, because §2 says
+what the player is doing while it happens.
 
 ### A1 · Change behind your back
 **Claim.** A room that is subtly different when you return is more disturbing
 than any amount of atmosphere, and costs almost nothing.
 **Smallest version.** When a room's group goes invisible, roll once: rotate one
 piece of furniture 90°, move a small object to a different surface, switch one
-light off. Never more than one change per visit, never the thing you were
-holding.
+light off. Never more than one change per visit.
+
+**The marker question — the real design decision here.** Players place objects
+to test whether they have been in a room. So the house can either respect those
+objects or interfere with them, and the two are completely different games.
+
+- *Respect them.* Change only what the player did not choose: furniture, doors,
+  lights, the height of a shelf. The instrument stays trustworthy, and what it
+  measures gets stranger. Start here.
+- *Interfere with them.* Move the marker itself. The house is now aware of being
+  measured. This is the strongest move available and it destroys the player's
+  only method — so it can be used approximately once, late, and never twice.
+
+Run these as two experiments, in that order, and do not merge the second until
+the first has been played by someone else.
+
 **How you'll know.** Watch someone play without telling them. The tell is a
 double-take — going back to check. If they never notice, the change is too
 small; if they say "that's a bug", it is too large or too physical.
-**Kill if.** It reads as jank rather than doubt, or you find yourself needing a
-sound cue to sell it. The effect must survive being unremarked.
+**Kill if.** It reads as jank rather than doubt, or you need a sound cue to sell
+it. The effect must survive being unremarked.
 **Size.** Small. A `driftRoom(key)` hook where `updateRoomVisibility` turns a
 group off.
 
@@ -117,69 +160,89 @@ already a reachability test to lean on).
 **How you'll know.** Does the player try the handle twice? Do they go quiet?
 **Kill if.** It produces dead ends that feel like a broken generator rather than
 a closing house.
-**Size.** Small–medium: needs geometry to change after build, or a pre-built
-brick panel that becomes visible.
+**Size.** Small–medium.
 
-### A3 · Dust
-**Claim.** Seeing your own footprints is the cheapest way to make the player the
-subject of the game.
-**Smallest version.** A decal trail on dusty floors (concrete, tile), fading
-over minutes. Then: one room where the prints are already there when you arrive.
-**Kill if.** It looks like a video game breadcrumb trail. The prints have to
-read as evidence, not navigation.
-**Size.** Small. Reuses the decal pass.
+### A3 · Dust and footprints — **do not do this**
+Superseded by §2. The instinct was to give the player a trace of themselves;
+players invented a better version of it out of mugs and bricks, and theirs is
+better precisely because they had to think of it. Adding automatic footprints
+would do the work for them and remove the step where they realise they need a
+method. Kept here so it is not proposed again.
+
+### A4 · The house notices you marking
+**Claim.** The house does not need to punish the marking to make it terrible. It
+only needs to acknowledge it.
+**Smallest version.** Track objects the player has moved and left. Somewhere
+deep, generate a room that is *already marked* — the same kinds of objects, in
+the same kind of arrangement, placed the way this player places them.
+**How you'll know.** The player should stop and count. It should be impossible
+to tell whether they did it.
+**Kill if.** It requires anything that looks like a message. The moment it is
+legible as a designed signal it stops working.
+**Size.** Medium. Needs a light record of player placements; no new rendering.
+
+### A5 · Take the room names away
+**Claim.** The game currently prints "the front room", "the passage" on first
+entry — free landmarks, in a game whose players are building their own landmark
+system out of crockery. It may be doing the player's work for them.
+**Smallest version.** A flag that suppresses the label prompt. Play both.
+**How you'll know.** With labels off, does the marking behaviour start earlier
+and get more elaborate?
+**Kill if.** Without them the building loses its domestic register and reads as
+abstract space — the labels may be carrying more tone than they look like they
+are. This is a genuine risk, not a formality.
+**Size.** Trivial. One line, and the highest information per minute in the file.
 
 ---
 
-## 4. Track B — space that folds
+## 5. Track B — space that folds
 
 The portals work. What has not been tried is what they are *for*.
 
 ### B1 · Objects through portals
-**Claim.** The portal is not believable until a thrown mug lands on the other
-side. Right now it stops at a wall, and that is the one thing that gives it away.
+**Claim.** Given §2, this is no longer cosmetic. Objects are the instrument the
+player thinks with, and portals are where the space folds; an object that stops
+dead at the fold is a hole in the instrument, exactly where the player most
+needs it to be sound. It is also the one detail that gives the portal away.
 **Smallest version.** Extend `traverse()` from the player to any dynamic body
 crossing a face, transforming position, velocity and angular velocity.
 **How you'll know.** Throw a mug through and it lands. Roll a ball through and
-it keeps rolling.
-**Kill if.** Nothing — this is close to required. Watch for objects oscillating
-at the plane; a short cooldown per body will be needed.
+it keeps rolling. Then: leave a marker on one side and find it from the other.
+**Kill if.** Nothing — this is close to required. Watch for bodies oscillating
+at the plane; a short per-body cooldown will be needed.
 **Size.** Small. The transform already exists.
 
 ### B2 · Recursion
 **Claim.** A portal seen through a portal is the image the whole project is
 reaching for.
-**Smallest version.** One extra bounce: render the far view with the twin's
-quad enabled, into a second target.
-**How you'll know.** `npm run perf` before and after, and look at it. Two
-bounces is a third render pass; the room-visibility work has bought room for it.
-**Kill if.** The cost lands on the frames that were already the worst — the
-busy rooms, not the warehouse.
+**Smallest version.** One extra bounce: render the far view with the twin's quad
+enabled, into a second target.
+**How you'll know.** `npm run perf` before and after, and look at it.
+**Kill if.** The cost lands on the frames that were already the worst — the busy
+rooms, not the warehouse.
 **Size.** Medium.
 
 ### B3 · The corridor that returns to itself
 **Claim.** An endless hallway is one line of generator code away and is the
-purest version of the effect.
+purest version of the effect. And with §2 in hand it is now also a *test*: a
+player who marks rooms will work out what the corridor is doing, using a mug.
 **Smallest version.** Two portal faces at each end of a passage, linked to each
 other. Walk far enough and you are back where you started, having passed the
 same chair four times.
-**How you'll know.** Instant. It either turns the stomach or it does not.
+**How you'll know.** Instant. It either turns the stomach or it does not. Then
+watch how long it takes a marking player to prove it to themselves.
 **Kill if.** The seam is visible — the far view is the *same room*, so the
 lighting has to match itself exactly.
-**Size.** Small — but likely the best return in the document.
+**Size.** Small, and probably the best return in the document.
 
 ### B4 · A room containing itself
-**Claim.** A scale model of the room you are standing in, on a table in that
-room, that you can enter.
-**Smallest version.** A shrunken copy of the room's plan built at 1/8, with a
-portal in its doorway to the full-size room.
-**Kill if.** The scale change breaks the body — the player is 1.6 m and does not
-scale.
-**Size.** Large. Park until B1–B3 have been judged.
+A scale model of the room you are standing in, on a table in that room, that you
+can enter. Large; the player is 1.6 m and does not scale. Park until B1–B3 have
+been judged.
 
 ---
 
-## 5. Track C — the body, and Track D — reasons to go on
+## 6. Track C — the body, and Track D — reasons to go on
 
 ### C1 · Depth as a physical fact
 **Claim.** The further you are from the room you woke up in — in *graph* steps,
@@ -195,28 +258,29 @@ name is too strong.
 
 ### C2 · Spatial sound
 **Claim.** The distant thump is currently distant in timbre only. A `PannerNode`
-per source is the cheapest large improvement left in the build.
+per source is the cheapest large improvement left in the build — and it gives a
+marking player another way to know where they are, which is the loop.
 **Smallest version.** Move impacts, footsteps and the far thump onto positional
 nodes; keep room tone and hum monophonic.
 **Size.** Small–medium. High confidence.
 
 ### D1 · Something you have to find
-**Claim.** The uncanny needs somewhere to be going. Gating is already in the
-design intent, and objects are already physical.
+**Claim.** §2 says the loop is already object-centred, so gating with an object
+is consistent rather than bolted on.
 **Smallest version.** One door in the house is locked. Somewhere else there is a
 key — an ordinary takeable object, on a shelf, unremarked. Carrying it to the
 door opens it. No inventory UI: you hold it in your hands, which is the same
-mechanic as everything else and needs no new interface.
+mechanic as everything else.
 **How you'll know.** Does the player start *looking at* rooms rather than
 passing through them?
 **Kill if.** It turns exploration into a search task and the rooms stop being
-places.
-**Size.** Medium. `PROP_INFO` needs a `key` kind; the generator needs to place
-key and lock at a sensible graph distance.
+places. Watch particularly for the key competing with the marking behaviour for
+the same objects.
+**Size.** Medium.
 
 ---
 
-## 6. Track E — craft, and the things that unblock the rest
+## 7. Track E — craft, and the things that unblock the rest
 
 ### E1 · Merge the statics (do this first)
 **Claim.** 1012 geometries and 334 draw calls in a room is the ceiling on
@@ -229,72 +293,72 @@ selection logic exists.
 **How you'll know.** `npm run perf`, and `npm run compare` proving the pixels
 did not move.
 **Watch for.** Shadow casters need to stay separable enough not to self-shadow
-badly; decals must stay separate (they are transparent and depth-sorted).
+badly; decals must stay separate (transparent, depth-sorted). Grabbable objects
+must stay individual — see §2.
 **Size.** Medium. Highest leverage in the document.
 
 ### E2 · A window
-**Claim.** Every space is an interior, so one window — onto a light well, onto
-brick, onto nothing at all — would be the loudest thing in the game.
-**Size.** Medium. New opening kind, new material, and a decision about what is
-outside that is a design question, not a technical one.
+Every space is an interior, so one window — onto a light well, onto brick, onto
+nothing at all — would be the loudest thing in the game. What is outside is a
+design question, not a technical one. Medium.
 
 ### E3 · Stairs
-**Claim.** One storey is the biggest remaining constraint on the layout, and a
-half-landing is exactly the kind of space this house should have.
-**Size.** Large — the player is a sphere on a flat floor; slopes need work.
-Do not start this before E1.
+One storey is the biggest remaining constraint on the layout. Large: the player
+is a sphere on a flat floor. Not before E1.
 
 ### E4 · Perf as a test
-**Claim.** The optimisation pass will erode silently without a threshold.
-**Smallest version.** `npm run perf` fails if any room exceeds a stated draw
-call / triangle budget.
-**Size.** Small. Do it while the numbers above are still true.
+The optimisation pass will erode silently without a threshold. `npm run perf`
+fails if any room exceeds a stated draw call / triangle budget. Small — do it
+while the numbers in §1 are still true.
 
 ---
 
-## 7. Suggested order
+## 8. Suggested order
 
-Slow and steady, roughly a session each, each landing on `main` before the next
-begins:
+Revised after §2. Slow and steady, roughly a session each, each landing on
+`main` before the next begins:
 
 1. **E1** merge the statics — buys the headroom for everything else
 2. **E4** perf budget as a test — locks in what E1 wins
-3. **B1** objects through portals — the portals stop giving themselves away
-4. **B3** the corridor that returns to itself — the cheapest strong idea here
-5. **A1** change behind your back — the first real move on the subject
-6. **C2** spatial sound — steady, high-confidence improvement
-7. **A2** the way back is not the way you came
-8. **C1** depth as a physical fact
-9. **D1** something you have to find — only once the house is worth being in
-10. re-judge the rest from what has been learned by then
+3. **B1** objects through portals — the instrument has to survive the fold
+4. **A5** take the room names away — one line, and it tests §2 directly
+5. **B3** the corridor that returns to itself — cheapest strong idea here
+6. **A1a** change behind your back, markers respected
+7. **C2** spatial sound
+8. **A2** the way back is not the way you came
+9. **A4** the house notices you marking
+10. **C1** depth as a physical fact
+11. **D1** something you have to find — only once the house is worth being in
+12. **A1b** move a marker. Once. Late. Re-judge everything after it.
 
-Housekeeping to fold in along the way: `README.md` and `SPECIFICATION.md`
-predate the optimisation pass and describe the old lighting and culling —
-update them when E1 lands and the numbers are stable. `SPECIFICATION.md` should
-also gain requirements for whatever survives the experiments; it is the document
-someone assesses this against.
+Housekeeping along the way: `README.md` and `SPECIFICATION.md` predate the
+optimisation pass and describe the old lighting and culling — update them when
+E1 lands and the numbers are stable. `SPECIFICATION.md` should also gain
+requirements for whatever survives; it is the document someone assesses this
+against.
 
 ---
 
-## 8. Open questions — for Mick, not for the agent
+## 9. Open questions — for Mick, not for the agent
 
 - **Does the house have an end?** Everything in Track D assumes going *deeper*
   means something. If there is a bottom, the generator needs to know it.
 - **What is outside a window** (E2)? Nothing? The same room? A city that does not
   exist? This one decision changes what the building is.
-- **Is the player anybody?** A3 and B4 both start pointing at a figure that is
-  you. That is a large door to open and it is yours to open.
+- **Is the player anybody?** A4 and B4 both point at a figure that is you. Large
+  door, yours to open.
 - **VR when?** The grab is already the portable pattern. Portals in stereo are a
-  known hard problem — two views per eye per portal — so it wants to be decided
-  before B2 rather than after.
+  known hard problem — two views per eye per portal — so decide before B2 rather
+  than after.
 
 ---
 
-## 9. Results
+## 10. Results
 
-*(One line per experiment as it is judged: date, branch, verdict, why. This
-section is the actual product of the plan.)*
+One line per experiment as it is judged: date, verdict, why. This section is the
+actual product of the plan.
 
 | date | experiment | verdict | why |
 |---|---|---|---|
-| | | | |
+| 2026-08-27 | **baseline — v0.2 as played** | works | Played on real hardware. Does what it is supposed to do; a genuinely weird experience. This is the control condition every later experiment is judged against — if a change makes it *more* interesting but *less* weird, it has failed. |
+| 2026-08-27 | **observed play loop** | finding | Players work out the architecture is impossible, then place objects in rooms as markers to tell whether they have been there, then realise what is happening. Undesigned and emergent. Recorded in full as §2; it reorders the plan, kills A3, and creates A4 and A5. |
