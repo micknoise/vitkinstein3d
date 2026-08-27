@@ -1,0 +1,5 @@
+node_modules/
+shots/
+*.zip
+.DS_Store
+_to_delete/

@@ -1,0 +1,28 @@
+{
+  "name": "vitkinstein3d",
+  "version": "0.2.0",
+  "description": "A first-person exploration demo: a generated house with more rooms than it has",
+  "scripts": {
+    "build": "node build.js",
+    "test": "node test.js",
+    "shots": "node shots.js"
+  },
+  "keywords": [
+    "three.js",
+    "cannon-es",
+    "portals",
+    "procedural-generation",
+    "non-euclidean",
+    "webgl"
+  ],
+  "author": "Mick Grierson",
+  "license": "UNLICENSED",
+  "private": false,
+  "devDependencies": {
+    "playwright": "^1.62.1"
+  },
+  "dependencies": {
+    "cannon-es": "^0.20.0",
+    "three": "^0.160.0"
+  }
+}
