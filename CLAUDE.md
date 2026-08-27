@@ -12,6 +12,8 @@ npm run build                 # src/ + three + cannon-es  ->  index.html
 npm test                      # 24 checks x 5 seeds, headless; must be green
 npm test 424242               # one seed
 npm run perf                  # draw calls / triangles / lights per room
+npm run perf all              # ...across all five test seeds
+                              # both exit 1 above the budget in perf-probe.js
 npm run shots 424242          # a screenshot of every room and every portal
 npm run compare -- old.html shots/before 424242 '&pr=1'
 npm run diff shots/before shots/after   # 0.00% between two runs of one build
@@ -87,4 +89,5 @@ URL flags: `?seed=N`, `?perf=1`, `?pr=N` (pin pixel ratio), `?nograin=1`.
   it is how an experiment gets judged. Revert is the undo. Record the verdict in
   `PLAN.md` §10, including for the ones you throw away.
 - `npm run perf` before and after anything touching rendering; put both sets of
-  numbers in the commit message.
+  numbers in the commit message. It fails above the budget — if a change really
+  needs more, raise the budget deliberately and say why.
