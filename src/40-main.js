@@ -263,6 +263,8 @@ function init() {
     get world() { return world; }, get spaces() { return SPACES; },
     MAT, PROPS, doors, PORTALS,
     get mergeStats() { return mergeStats; },
+    get bodyTraversals() { return bodyTraversals; },
+    get bodyTraversals() { return bodyTraversals; },
     freeze(t) { frozenAt = t === undefined ? 12 : t; },
     thaw() { frozenAt = null; clock.getDelta(); },
     go(x, y, z, look, tilt) {

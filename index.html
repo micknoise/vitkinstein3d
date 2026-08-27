@@ -15323,6 +15323,68 @@ function updatePortals() {
     if (p.side > 0 && sign <= 0) traverse(p);
     p.side = sign;
   }
+  updateBodyPortals();
+}
+
+// --- B1: everything else that can move --------------------------------------
+//
+// traverse() moves the player and whatever is in their hands. Nothing else
+// crossed a portal: a thrown mug went through the doorway into whatever is
+// physically behind it, which is usually outside the building, and was never
+// seen again. Objects are the instrument players navigate with (PLAN §2), so a
+// hole in them exactly where the space folds is a hole in the method.
+
+let bodyTraversals = 0;                 // objects that have come through, for the tests
+const _bs = new THREE.Vector3(), _bq = new CANNON.Quaternion();
+const _bodyM = new THREE.Matrix4(), _YUP = new THREE.Vector3(0, 1, 0);
+
+function refreshBodySides(body) {
+  const s = body._pSide || (body._pSide = []);
+  _bs.set(body.position.x, body.position.y, body.position.z);
+  for (let i = 0; i < PORTALS.length; i++) s[i] = Math.sign(portalSide(PORTALS[i], _bs)) || 1;
+  return s;
+}
+
+function traverseBody(p, body) {
+  const M = _bodyM.copy(portalMatrix(p));
+  const dYaw = p.other.yaw + Math.PI - p.yaw;
+
+  const np = _bs.set(body.position.x, body.position.y, body.position.z).applyMatrix4(M);
+  body.position.set(np.x, np.y, np.z);
+
+  const nv = _bs.set(body.velocity.x, 0, body.velocity.z).applyAxisAngle(_YUP, dYaw);
+  body.velocity.set(nv.x, body.velocity.y, nv.z);
+
+  const na = _bs.set(body.angularVelocity.x, 0, body.angularVelocity.z).applyAxisAngle(_YUP, dYaw);
+  body.angularVelocity.set(na.x, body.angularVelocity.y, na.z);
+
+  // turn the thing itself as well, or a chair arrives through the fold facing
+  // a direction it was never facing
+  _bq.setFromEuler(0, dYaw, 0);
+  body.quaternion.copy(_bq.mult(body.quaternion));
+
+  refreshBodySides(body);
+  bodyTraversals++;
+  body._pCool = 6;          // frames, so it cannot oscillate at the plane
+  body.wakeUp();
+}
+
+function updateBodyPortals() {
+  if (!PORTALS.length) return;
+  for (const { body } of dynamicPairs) {
+    if (body === held) continue;              // the player's hands already carry it
+    if (body.sleepState === CANNON.Body.SLEEPING) continue;
+    if (body._pCool > 0) { body._pCool--; continue; }
+    const s = body._pSide || refreshBodySides(body);
+    _bs.set(body.position.x, body.position.y, body.position.z);
+    for (let i = 0; i < PORTALS.length; i++) {
+      const p = PORTALS[i];
+      const sign = Math.sign(portalSide(p, _bs)) || 1;
+      if (sign === s[i] || !withinFrame(p, _bs)) { s[i] = sign; continue; }
+      if (s[i] > 0 && sign <= 0) { traverseBody(p, body); break; }
+      s[i] = sign;
+    }
+  }
 }
 
 function traverse(p) {
@@ -15342,6 +15404,10 @@ function traverse(p) {
     held.position.set(hp.x, hp.y, hp.z);
     const hv = new THREE.Vector3(held.velocity.x, 0, held.velocity.z).applyAxisAngle(new THREE.Vector3(0, 1, 0), dYaw);
     held.velocity.set(hv.x, held.velocity.y, hv.z);
+    // it came through with the player, so it must not also come through on its
+    // own account on the next frame
+    refreshBodySides(held);
+    held._pCool = 6;
   }
 
   // everything is now on the far side of both faces
@@ -15958,6 +16024,8 @@ function init() {
     get world() { return world; }, get spaces() { return SPACES; },
     MAT, PROPS, doors, PORTALS,
     get mergeStats() { return mergeStats; },
+    get bodyTraversals() { return bodyTraversals; },
+    get bodyTraversals() { return bodyTraversals; },
     freeze(t) { frozenAt = t === undefined ? 12 : t; },
     thaw() { frozenAt = null; clock.getDelta(); },
     go(x, y, z, look, tilt) {

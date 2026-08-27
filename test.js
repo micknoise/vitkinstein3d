@@ -181,6 +181,73 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
       assert(port.space === port.target, 'and in the room that door opens onto (' + port.space + ')');
     }
 
+    // --- an object has to survive the fold too ------------------------------
+    // The objects are what players navigate with, so a mug that stops dead at a
+    // portal, or stops being drawn once it is through, is a hole in the method.
+    const obj = await p.evaluate(() => {
+      if (!VK.PORTALS.length) return { none: true };
+      const T = VK.THREE;
+      const a = VK.PORTALS[0];
+      const drawn = o => { let x = o; while (x) { if (!x.visible) return false; x = x.parent; } return true; };
+
+      // a body of our own choosing, put in front of the face and pushed through,
+      // so the check does not depend on how well a thrown mug happens to fly
+      let body = null;
+      for (const b of VK.world.bodies) if (b.mass > 0 && b.threeObj) { body = b; break; }
+      if (!body) return { noBody: true };
+      const start = a.pos.clone().addScaledVector(a.normal, 0.9);
+      body.position.set(start.x, a.pos.y, start.z);
+      body.velocity.set(-a.normal.x * 4, 0, -a.normal.z * 4);
+      body.angularVelocity.set(0, 0, 0);
+      body.wakeUp();
+      const t0 = VK.bodyTraversals;
+      VK.tick(40);
+      const wp = body.threeObj.getWorldPosition(new T.Vector3());
+      return {
+        crossed: VK.bodyTraversals - t0,
+        dFromFar: wp.distanceTo(a.other.pos),
+        dFromNear: wp.distanceTo(a.pos)
+      };
+    });
+    if (!obj.none && !obj.noBody) {
+      assert(obj.crossed > 0, 'an object pushed into a portal comes out the other side');
+      assert(obj.dFromFar < obj.dFromNear, 'and it is on the far side, not the near one (' + obj.dFromFar.toFixed(2) + 'm vs ' + obj.dFromNear.toFixed(2) + 'm)');
+    }
+
+    // carried through, and still drawn on the other side: an object's mesh
+    // belongs to a room group, and the room it was built in is not the room it
+    // ends up in
+    const carried = await p.evaluate(async () => {
+      if (!VK.PORTALS.length) return { none: true };
+      const T = VK.THREE;
+      const raf = () => new Promise(r => requestAnimationFrame(() => r()));
+      const drawn = o => { let x = o; while (x) { if (!x.visible) return false; x = x.parent; } return true; };
+      const a = VK.PORTALS[0];
+      const grabs = [];
+      VK.scene.traverse(o => { if (o.userData && o.userData.grabbable) grabs.push(o); });
+      const stand = a.pos.clone().addScaledVector(a.normal, 2.4);
+      VK.go(stand.x, 0.36, stand.z, Math.atan2(-(a.pos.x - stand.x), -(a.pos.z - stand.z)), 0);
+      for (let i = 0; i < 4; i++) await raf();
+      let best = null, bd = 1e9;
+      for (const g of grabs) {
+        const d = g.getWorldPosition(new T.Vector3()).distanceTo(stand);
+        if (d < bd) { bd = d; best = g; }
+      }
+      if (!best) return { nothing: true };
+      const wp = best.getWorldPosition(new T.Vector3());
+      VK.aimAt(wp.x, wp.y, wp.z); await raf();
+      if (!VK.grab()) return { nograb: true };
+      VK.aimAt(a.pos.x, 1.4, a.pos.z);
+      VK.press('KeyW', true);
+      let unseen = 0, frames = 0;
+      for (let i = 0; i < 80; i++) { await raf(); frames++; if (!drawn(best)) unseen++; }
+      VK.press('KeyW', false);
+      VK.drop();
+      return { unseen, frames, space: VK.player().space, from: a.space };
+    });
+    if (!carried.none && !carried.nothing && !carried.nograb)
+      assert(carried.unseen === 0, 'an object carried through a portal stays drawn (' + carried.unseen + '/' + carried.frames + ' frames missing)');
+
     // --- settling and cleanliness ------------------------------------------
     const settled = await p.evaluate(() => {
       VK.tick(240);
