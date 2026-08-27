@@ -13988,10 +13988,12 @@ function generateBuilding() {
       const sides = rshuffle(['north', 'south', 'east', 'west']).filter(s => parent.walls[s] === 0);
       for (const side of sides) {
         const alongX = (side === 'east' || side === 'west');
-        for (let attempt = 0; attempt < 4; attempt++) {
-          // shorter than a corridor usually is: it has to fit broadside against
-          // a house that is already standing
-          const long = rr(7, 13), narrow = rr(t.w[0], t.w[1]);
+        // Length is what decides whether this reads as an endless corridor or as
+        // a small room with a door at each end, and the short ones do not land.
+        // It has to fit broadside against a house that is already standing, so
+        // ask for a long one first and settle for less only if it will not go.
+        for (const [lo, hi] of [[16, 21], [12, 17], [9, 13], [7, 10]]) {
+          const long = rr(lo, hi), narrow = rr(t.w[0], t.w[1]);
           const W = alongX ? narrow : long, D = alongX ? long : narrow;
           const H = +rr(t.h[0], t.h[1]).toFixed(2);
 
