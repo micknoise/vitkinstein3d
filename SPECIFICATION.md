@@ -85,6 +85,7 @@ Each requirement has an acceptance test an operator can run by hand.
 | **F15b** | An object held while crossing stays visible the whole way. What you carry reaches the plane about a metre before your eyes do, and for those steps it is drawn through the doorway rather than hidden behind it. | Walk slowly through a portal carrying something and watch it. |
 | **F15c** | A portal opening never shows a view it did not just render. From behind its own plane, or beyond the two-face budget, it shows the room rather than a stale image. | Walk through, turn round, and back up into the doorway. |
 | **F15d** | An object is drawn in the room it is in, not the room it was built in. Objects left in other rooms as markers are there when you return. | Leave something in three rooms, walk a loop, and come back. |
+| **F15e** | One passage in the house returns to itself: its two ends are linked to each other, so walking down it brings you back to where you started, past the same fittings again. Looking down it, you see the corridor itself receding. | Find the corridor with a doorway at both ends and no way out at either. Put a mug halfway along and walk. |
 
 ### 3.3 Movement and body
 
@@ -152,7 +153,7 @@ Each requirement has an acceptance test an operator can run by hand.
 
 ## 5. Verified in headless Chromium
 
-`node test.js` runs twenty-four checks against **five different seeds** — the point being that a
+`node test.js` runs twenty-five checks against **five different seeds** — the point being that a
 generator has to be correct for buildings nobody has looked at, not just the one in the screenshot.
 All pass. The suite covers:
 
@@ -169,6 +170,9 @@ All pass. The suite covers:
   in your hands, drawn, with no drift
 - **F15c**: a portal face drawn from in front of it and not from behind its own plane
 - **F15d**: an object carried through a portal still being drawn on the other side
+- **F15e**: walking out of one end of the looping corridor and arriving at its other end, in the
+  same room, nearer the end you were walking towards than the one you left by
+- every portal face agreeing on which side of it you are, after a crossing
 - objects settling rather than jittering
 - a clean console
 
@@ -239,7 +243,7 @@ rendering, `VK.openAll()` opens every door, `VK.spaces` is the plan, `VK.count()
 | Area | Requirements | Pass / Fail | Notes |
 |---|---|---|---|
 | The generator | F1–F9 | | |
-| Non-euclidean space | F10–F15d | | |
+| Non-euclidean space | F10–F15e | | |
 | Movement and body | F16–F19 | | |
 | Hands | F20–F24 | | |
 | Doors | F25–F27 | | |

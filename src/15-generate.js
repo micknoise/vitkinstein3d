@@ -13,12 +13,12 @@
 // on top of where you are standing.
 // ---------------------------------------------------------------------------
 
-let SPACES = {}, SPACE_ORDER = [], START = null, PORTAL_LINKS = [];
+let SPACES = {}, SPACE_ORDER = [], START = null, PORTAL_LINKS = [], LOOP_CORRIDOR = null;
 
 const OPP = { north: 'south', south: 'north', east: 'west', west: 'east' };
 
 function generateBuilding() {
-  SPACES = {}; SPACE_ORDER = []; PORTAL_LINKS = [];
+  SPACES = {}; SPACE_ORDER = []; PORTAL_LINKS = []; LOOP_CORRIDOR = null;
   const rooms = [];        // {key, type, ox, oz, W, H, D, walls:{}}
   let counter = 0;
 
@@ -131,6 +131,80 @@ function generateBuilding() {
     SPACES[child.key].openings.push({ wall: OPP[side], at: +cAt.toFixed(2), w: +doorW.toFixed(2), h: +h.toFixed(2) });
   }
 
+  // --- B3: the corridor that returns to itself -----------------------------
+  // Both ends of one passage, linked to each other. Walk far enough down it and
+  // you are back where you started, having passed the same radiator four times.
+  //
+  // The grow loop cannot produce the passage this needs. It orients a corridor
+  // to run *away* from its parent, so the wall a corridor joins by is always
+  // one of its ends, and an end that is already a doorway cannot also be a
+  // portal. So this places one deliberately: a passage running *across* the
+  // wall it joins, entered from its long side, with both ends free to be cut.
+  //
+  // Every house gets one, for now. Whether it should is the open question in
+  // the verdict: a corridor that eats itself may be worth more when it is not
+  // a feature of the architecture. Gating it is one rchance() away, and that
+  // decision should be made from playing it, not from guessing.
+  //
+  // The seam that would give it away is the lighting, and there is none to get
+  // wrong: the far view is the same room, so it matches itself exactly. That is
+  // why this is the cheapest strong idea in the plan.
+  {
+    const t = ROOM_TYPES.passage, loopW = 1.0, loopH = 2.05;
+    const parents = rshuffle(rooms.filter(r => Object.values(r.walls).some(v => v === 0)));
+    placing:
+    for (const parent of parents) {
+      const sides = rshuffle(['north', 'south', 'east', 'west']).filter(s => parent.walls[s] === 0);
+      for (const side of sides) {
+        const alongX = (side === 'east' || side === 'west');
+        for (let attempt = 0; attempt < 4; attempt++) {
+          // shorter than a corridor usually is: it has to fit broadside against
+          // a house that is already standing
+          const long = rr(7, 13), narrow = rr(t.w[0], t.w[1]);
+          const W = alongX ? narrow : long, D = alongX ? long : narrow;
+          const H = +rr(t.h[0], t.h[1]).toFixed(2);
+
+          const doorW = Math.min(1.05, (alongX ? Math.min(parent.D, D) : Math.min(parent.W, W)) - 0.9);
+          if (doorW < 0.75) continue;
+
+          let ox, oz;
+          if (alongX) {
+            ox = parent.ox + (side === 'east' ? 1 : -1) * (parent.W + W) / 2;
+            oz = parent.oz + rr(-1, 1) * Math.max(0, (D - parent.D) / 4);
+          } else {
+            oz = parent.oz + (side === 'north' ? -1 : 1) * (parent.D + D) / 2;
+            ox = parent.ox + rr(-1, 1) * Math.max(0, (W - parent.W) / 4);
+          }
+          if (overlaps(ox, oz, +W.toFixed(2), +D.toFixed(2))) continue;
+
+          const child = addRoom('passage', ox, oz, +W.toFixed(2), H, +D.toFixed(2));
+          const ends = alongX ? ['north', 'south'] : ['west', 'east'];
+          if (!ends.every(e => beyondFree(child, e, 0, loopW))) {
+            rooms.pop(); SPACE_ORDER.pop(); delete SPACES[child.key];
+            continue;
+          }
+
+          parent.walls[side] = 1; child.walls[OPP[side]] = 1;
+          const doorWorld = alongX ? oz : ox;
+          const pAt = doorWorld - (alongX ? parent.oz : parent.ox);
+          const h = Math.min(2.15, Math.min(parent.H, H) - 0.45);
+          const hasDoor = rchance(0.55);
+          SPACES[parent.key].openings.push({ wall: side, at: +pAt.toFixed(2), w: +doorW.toFixed(2), h: +h.toFixed(2), door: hasDoor });
+          SPACES[child.key].openings.push({ wall: OPP[side], at: 0, w: +doorW.toFixed(2), h: +h.toFixed(2) });
+
+          const faces = ends.map(e => {
+            child.walls[e] = 5;
+            SPACES[child.key].openings.push({ wall: e, at: 0, w: loopW, h: loopH, portal: true });
+            return { space: child.key, wall: e, at: 0, w: loopW, h: loopH };
+          });
+          PORTAL_LINKS.push({ a: faces[0], b: faces[1] });
+          LOOP_CORRIDOR = child.key;
+          break placing;
+        }
+      }
+    }
+  }
+
   // --- doorways that go nowhere -------------------------------------------
   for (const r of rooms) {
     if (!rchance(0.3)) continue;
@@ -198,7 +272,7 @@ function generateBuilding() {
 
   // --- light and furnish ---------------------------------------------------
   for (const r of rooms) { lightRoom(r); dressRoom(r); }
-  return { seed: SEED, rooms: rooms.length, portals: PORTAL_LINKS.length };
+  return { seed: SEED, rooms: rooms.length, portals: PORTAL_LINKS.length, loopCorridor: LOOP_CORRIDOR };
 }
 
 // --- lighting ---------------------------------------------------------------

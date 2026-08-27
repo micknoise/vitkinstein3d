@@ -61,6 +61,10 @@ that takes one frame to the other, keeping your speed and whatever you are carry
 through too — throw a mug at one and it arrives, turning as the space turns — which matters more
 than it sounds, because leaving objects in rooms is how people work out what the building is doing.
 
+One passage in every house returns to itself: both its ends are the same doorway, so you can walk
+down it as long as you like and never leave it. Looking along it, you see the corridor receding into
+itself.
+
 This is what lets space stop adding up. Because the two sides are never connected in world space,
 the generator can put the far side anywhere at all — including a warehouse larger than the entire
 house, reached through an internal wall.
@@ -76,7 +80,7 @@ house, reached through an internal wall.
 ```sh
 npm install
 npm run build      # bundles three.js, cannon-es and src/ into index.html
-npm test           # 24 checks against 5 different seeds, headless
+npm test           # 25 checks against 5 different seeds, headless
 npm run perf       # draw calls and triangles per room; fails over budget
 npm run shots 1234 # renders every room and every portal of that building
 ```

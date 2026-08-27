@@ -181,6 +181,30 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
       assert(port.space === port.target, 'and in the room that door opens onto (' + port.space + ')');
     }
 
+    // --- the corridor that returns to itself (B3) ----------------------------
+    const loop = await p.evaluate(() => {
+      const key = VK.stats.loopCorridor;
+      if (!key) return { none: true };
+      const pair = VK.PORTALS.filter(q => q.space === key && q.other.space === key);
+      if (pair.length !== 2) return { unpaired: pair.length };
+      const [a, b] = pair;
+      const len = a.pos.distanceTo(b.pos);
+      // stand just inside one end, facing the other, and walk the length of it
+      const at = a.pos.clone().addScaledVector(a.normal, 1.2);
+      VK.go(at.x, 0.36, at.z, Math.atan2(-(a.pos.x - at.x), -(a.pos.z - at.z)), 0);
+      VK.tick(20);
+      VK.press('KeyW', true); VK.tick(120); VK.press('KeyW', false); VK.tick(2);
+      const pl = VK.player();
+      const here = new VK.THREE.Vector3(pl.pos[0], pl.pos[1], pl.pos[2]);
+      return { key, len, space: pl.space, fromFar: here.distanceTo(b.pos), fromNear: here.distanceTo(a.pos) };
+    });
+    if (!loop.none && !loop.unpaired) {
+      assert(loop.len > 6, 'the looping corridor is long enough to be walked (' + loop.len.toFixed(1) + 'm)');
+      assert(loop.space === loop.key, 'walking out of one end of it leaves you in the same corridor');
+      assert(loop.fromFar < loop.fromNear, 'and back at the other end, having gone nowhere (' +
+        loop.fromFar.toFixed(1) + 'm from it, ' + loop.fromNear.toFixed(1) + 'm from the end you left by)');
+    }
+
     // --- the side flags must describe where you are now ----------------------
     // Every face remembers which side of it you were on. Crossing one moves you,
     // which changes that answer for every other face at once. If a flag is left
