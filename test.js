@@ -181,6 +181,33 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
       assert(port.space === port.target, 'and in the room that door opens onto (' + port.space + ')');
     }
 
+    // --- you cannot fall out of the world by walking about -------------------
+    // Twice now a portal has fired for a player nowhere near its doorway, and
+    // both times the symptom was the same: you walk through an ordinary room,
+    // drop through the floor and the screen goes black. So walk every room in
+    // four directions and check nobody ever leaves the floor.
+    const sweep = await p.evaluate(() => {
+      const dirs = [0, Math.PI / 2, Math.PI, -Math.PI / 2];
+      const bad = [];
+      let walks = 0;
+      for (const [key, sp] of Object.entries(VK.spaces)) {
+        for (const yaw of dirs) {
+          VK.goSpace(key);
+          VK.tick(15);
+          let lowest = 9;
+          VK.go(VK.player().pos[0], 0.36, VK.player().pos[2], yaw, 0);
+          VK.press('KeyW', true);
+          for (let i = 0; i < 24; i++) { VK.tick(5); lowest = Math.min(lowest, VK.player().pos[1]); }
+          VK.press('KeyW', false);
+          walks++;
+          if (lowest < -0.4) bad.push(key + ' facing ' + yaw.toFixed(2) + ' fell to ' + lowest.toFixed(1));
+        }
+      }
+      return { walks, bad: bad.slice(0, 4), n: bad.length };
+    });
+    assert(sweep.n === 0, 'walking every room in four directions never drops you out of the world (' +
+      sweep.walks + ' walks)' + (sweep.n ? ' — ' + sweep.bad.join('; ') : ''));
+
     // --- the corridor that returns to itself (B3) ----------------------------
     const loop = await p.evaluate(() => {
       const key = VK.stats.loopCorridor;

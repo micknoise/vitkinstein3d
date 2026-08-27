@@ -138,9 +138,26 @@ const _traverseM = new THREE.Matrix4();
 
 function portalSide(p, v) { return _v.copy(v).sub(p.pos).dot(p.normal); }
 
+// Are you actually in this doorway? Two things this has to get right, both of
+// which it used to get wrong.
+//
+// It must not scribble on _v2, which is where updatePortals keeps the player
+// position across its loop: the old version copied into _v2 and so destroyed
+// the caller's own argument, leaving every face after the first one that
+// differed to be judged from a garbage position.
+//
+// And it has to bound the distance to the plane. Checking only the offset
+// along the wall and the height describes an infinite prism sticking out of
+// the doorway in both directions, so walking across that prism anywhere in the
+// building -- through a room that happens to line up with a corridor's end,
+// say -- counted as standing in the doorway, and put you through it.
+const _wf = new THREE.Vector3(), _YAX = new THREE.Vector3(0, 1, 0);
+const FRAME_DEPTH = 0.8;      // a wall's thickness and then some; a stride is 0.04
 function withinFrame(p, v) {
-  _v2.copy(v).sub(p.pos).applyAxisAngle(new THREE.Vector3(0, 1, 0), -p.yaw);
-  return Math.abs(_v2.x) < p.w / 2 + 0.15 && Math.abs(_v2.y) < p.h / 2 + 0.35;
+  _wf.copy(v).sub(p.pos).applyAxisAngle(_YAX, -p.yaw);
+  return Math.abs(_wf.x) < p.w / 2 + 0.15 &&
+         Math.abs(_wf.y) < p.h / 2 + 0.35 &&
+         Math.abs(_wf.z) < FRAME_DEPTH;
 }
 
 function initPortalSides() {
