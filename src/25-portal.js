@@ -265,19 +265,24 @@ function visiblePortals() {
   if (!PORTALS.length || !renderer) return EMPTY;
   _mat4.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
   _frustum.setFromProjectionMatrix(_mat4);
+  // nearest first, so that when the budget bites it drops the face that
+  // matters least rather than whichever came first out of the generator
   return PORTALS.filter(p =>
     p.pos.distanceTo(camera.position) < PORTAL_RANGE &&
     portalSide(p, camera.position) > -0.2 &&
     _frustum.intersectsObject(p.mesh)
-  ).slice(0, 2);
+  ).sort((a, b) => a.pos.distanceToSquared(camera.position) - b.pos.distanceToSquared(camera.position))
+   .slice(0, 2);
 }
 
 function renderPortals(visible) {
   if (!renderer) return;
   portalsDrawn = visible.length;
+  // hide first, and unhide only what gets redrawn below -- on a frame with no
+  // portals in view this is the whole job
+  for (const q of portalQuads) q.visible = false;
   if (!visible.length) return;
 
-  for (const q of portalQuads) q.visible = false;
   const prevTarget = renderer.getRenderTarget();
   // a doorway's worth of room, seen from several metres away, does not need
   // real-time shadows -- and this is three quarters of what the pass cost
@@ -310,7 +315,15 @@ function renderPortals(visible) {
   renderer.shadowMap.enabled = hadShadows;
   renderer.clippingPlanes = _noClip;
   renderer.setRenderTarget(prevTarget);
-  for (const q of portalQuads) q.visible = true;
+
+  // Only the faces that were actually redrawn this frame. A quad samples its
+  // render target in screen space, so a quad that is shown without being
+  // redrawn is a picture taken from where the camera used to be, stretched
+  // across the doorway from where the camera is now -- which reads as the view
+  // through the door skewing. It happens whenever a face is skipped: beyond the
+  // two-face budget, or with the camera behind its plane, which is what backing
+  // out through a doorway does.
+  for (const p of visible) p.mesh.visible = true;
 }
 
 function resizePortals() {

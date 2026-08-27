@@ -181,6 +181,30 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
       assert(port.space === port.target, 'and in the room that door opens onto (' + port.space + ')');
     }
 
+    // --- a portal face must not show a view it did not just draw ------------
+    // The quad samples its render target in screen space, so drawing it on a
+    // frame where the view was not refreshed puts a picture taken from the old
+    // camera position across the doorway -- it reads as the view skewing.
+    const stale = await p.evaluate(async () => {
+      if (!VK.PORTALS.length) return { none: true };
+      const raf = () => new Promise(r => requestAnimationFrame(() => r()));
+      const a = VK.PORTALS[0];
+      const look = at => {
+        VK.go(at.x, 0.36, at.z, Math.atan2(-(a.pos.x - at.x), -(a.pos.z - at.z)), 0);
+        VK.tick(2);
+      };
+      look(a.pos.clone().addScaledVector(a.normal, 2.0));
+      for (let i = 0; i < 8; i++) await raf();
+      const inFront = a.mesh.visible;
+      look(a.pos.clone().addScaledVector(a.normal, -0.9));
+      for (let i = 0; i < 8; i++) await raf();
+      return { inFront, behind: a.mesh.visible };
+    });
+    if (!stale.none) {
+      assert(stale.inFront === true, 'a portal face is drawn when you are in front of it');
+      assert(stale.behind === false, 'and not drawn from behind its own plane, where its view is stale');
+    }
+
     // --- an object has to survive the fold too ------------------------------
     // The objects are what players navigate with, so a mug that stops dead at a
     // portal, or stops being drawn once it is through, is a hole in the method.
