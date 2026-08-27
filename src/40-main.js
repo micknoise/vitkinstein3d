@@ -261,6 +261,8 @@ function init() {
     get scene() { return scene; }, get camera() { return camera; },
     get world() { return world; }, get spaces() { return SPACES; },
     MAT, PROPS, doors, PORTALS,
+    freeze(t) { frozenAt = t === undefined ? 12 : t; },
+    thaw() { frozenAt = null; clock.getDelta(); },
     go(x, y, z, look, tilt) {
       playerBody.position.set(x, y === undefined ? 0.36 : y, z);
       playerBody.velocity.set(0, 0, 0);
@@ -463,13 +465,21 @@ function syncBodies() {
   }
 }
 
+// A screenshot A/B is only evidence if the two builds are asked to draw the
+// same instant. They are not, by default: physics steps on wall-clock delta and
+// the lamps flicker off performance.now(), so the same build photographed twice
+// differs as much as a real change does. VK.freeze(t) pins the clock -- no time
+// passes in the frame loop, and the flicker is evaluated at exactly t -- which
+// leaves physics driven only by VK.tick() and the picture reproducible.
+let frozenAt = null;
+
 let acc = 0;
 function animate() {
   requestAnimationFrame(animate);
   const nowMs = performance.now();
   updatePerf(nowMs);
   adaptResolution(nowMs);
-  const dt = Math.min(clock.getDelta(), 0.05);
+  const dt = frozenAt !== null ? (clock.getDelta(), 0) : Math.min(clock.getDelta(), 0.05);
 
   updatePlayer(dt);
   updateHeld(dt);
@@ -483,7 +493,7 @@ function animate() {
   syncBodies();
   refreshShadows();
 
-  const t = performance.now() * 0.001;
+  const t = frozenAt !== null ? frozenAt : performance.now() * 0.001;
   for (const f of flickerers) {
     const n = Math.sin(t * 11.3 + f.seed) * Math.sin(t * 3.7 + f.seed * 2.1) * Math.sin(t * 27.1 + f.seed);
     const drop = (f.amt > 0.2 && Math.sin(t * 1.7 + f.seed) > 0.986) ? 0.15 : 1;
@@ -492,7 +502,8 @@ function animate() {
 
 
   updateSpace();
-  scene.fog.density += (targetFog - scene.fog.density) * 0.03;
+  if (frozenAt !== null) scene.fog.density = targetFog;
+  else scene.fog.density += (targetFog - scene.fog.density) * 0.03;
 
   updateHover();
   if (hoverTarget !== shownHover) {

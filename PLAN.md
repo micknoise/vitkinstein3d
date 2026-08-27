@@ -112,8 +112,16 @@ Revert is the undo, not a branch: the commit is the unit that gets thrown away.
 6. **Rebuild and commit `index.html`** with any change to `src/`, or the
    published game drifts from the source and the thing being played is not the
    thing being judged.
-7. **Screenshot A/B** for anything that is supposed to look identical:
-   `npm run compare -- old.html shots/before 424242` against the new build.
+7. **Screenshot A/B** for anything that is supposed to look identical. Render
+   both builds and diff them — do not eyeball sixteen pairs:
+   ```sh
+   npm run compare -- old.html    shots/before 424242 '&pr=1'
+   npm run compare -- index.html  shots/after  424242 '&pr=1'
+   npm run diff shots/before shots/after
+   ```
+   Two runs of the *same* build come out at 0.00%, so anything above the noise
+   floor is the change and not the tool. Check that control if a result looks
+   surprising.
 
 ### What must not drift
 
@@ -404,4 +412,5 @@ actual product of the plan.
 |---|---|---|---|
 | 2026-08-27 | **baseline — v0.2 as played** | works | Played on real hardware. Does what it is supposed to do; a genuinely weird experience. This is the control condition every later experiment is judged against — if a change makes it *more* interesting but *less* weird, it has failed. |
 | 2026-08-27 | **observed play loop** | finding | Players work out the architecture is impossible, then place objects in rooms as markers to tell whether they have been there, then realise what is happening. Undesigned and emergent. Recorded in full as §2; it reorders the plan, kills A3, and creates A4. |
+| 2026-08-27 | **textures were never seeded** | fixed | `00-textures.js` drew every crack, stain and mould patch with `Math.random()`, so `?seed=N` reproduced a house's *layout* but never its *surfaces*. The screenshot A/B in §3 could therefore never have worked: the same build photographed twice differed on 41% of its pixels, which is more than the E1 merge changed. Surfaces now run on `TR`, a second stream seeded from `SEED` and kept deliberately separate from the generator's `R` so that existing seeds keep their layouts. Same-build control is now 0.00%. Found by running the control before trusting the comparison — worth doing again. |
 | 2026-08-27 | **A5 — remove the room names** | killed before building | The names are the main reason people work out what is going on: they are the vocabulary that makes *the front room, again* legible as evidence. Proposed on the theory that they were doing the player's work; they are doing the opposite. Settled, not deprioritised. Turned into A6, which uses naming as a lever instead of removing it. |

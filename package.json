@@ -7,7 +7,8 @@
     "test": "node test.js",
     "shots": "node shots.js",
     "perf": "node perf-probe.js",
-    "compare": "node shot-compare.js"
+    "compare": "node shot-compare.js",
+    "diff": "node shot-diff.js"
   },
   "keywords": [
     "three.js",

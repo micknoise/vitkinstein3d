@@ -1,10 +1,12 @@
 // Renders the same views from two builds so the optimisation work can be
 // checked against the thing it is not supposed to change.
 //
-// Physics is advanced with VK.tick(), not by waiting: the two builds run at
-// different speeds under swiftshader, so waiting the same wall-clock time
-// settles the player by different amounts and every shot comes out framed
-// differently. The animated film grain is turned off for the same reason.
+// Nothing here is allowed to depend on wall-clock time, because the two builds
+// run at different speeds under swiftshader. Physics is advanced with VK.tick().
+// VK.freeze() pins the frame loop's clock, so the lamps do not flicker to a
+// different brightness between the two runs and no stray physics creeps in
+// while frames are being drawn. Frames are counted, not waited for. The
+// animated film grain is turned off for the same reason.
 const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
@@ -25,8 +27,17 @@ fs.mkdirSync(outDir, { recursive: true });
     document.getElementById('title').style.display = 'none';
     document.getElementById('grain').style.display = 'none';
     VK.openAll();
+    VK.freeze(12);                                  // stop the clock, and the flicker
     for (let i = 0; i < 240; i++) { VK.tick(1); }   // let the building settle
   });
+
+  // exactly N drawn frames, so the light pool, the shadow refresh parity and
+  // the portal targets are in the same state in both builds
+  const frames = n => page.evaluate(k => new Promise(res => {
+    let i = 0;
+    const step = () => (++i >= k ? res(i) : requestAnimationFrame(step));
+    requestAnimationFrame(step);
+  }), n);
 
   const shoot = async (x, z, yaw, pitch, name) => {
     await page.evaluate(a => {
@@ -35,7 +46,7 @@ fs.mkdirSync(outDir, { recursive: true });
       VK.go(a[0], undefined, a[1], a[2], a[3]);
       VK.tick(1);
     }, [x, z, yaw, pitch]);
-    await new Promise(r => setTimeout(r, 400));    // a few real frames, for the portal targets
+    await frames(12);                              // enough for the portal targets to fill
     await page.screenshot({ path: `${outDir}/${name}.png` });
   };
 

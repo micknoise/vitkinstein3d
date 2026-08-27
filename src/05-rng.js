@@ -19,6 +19,12 @@ let SEED = (() => {
 
 let R = mulberry32(SEED);
 
+// The surfaces get their own stream, deliberately separate from the one the
+// generator draws on. Textures are drawn before the layout is decided, so if
+// they shared a stream, adding or removing a single stain would shift every
+// house that has ever been made from a given number.
+const TR = mulberry32((SEED ^ 0x9e3779b9) >>> 0);
+
 const rr = (a, b) => a + R() * (b - a);                  // random float
 const ri = (a, b) => Math.floor(a + R() * (b - a + 1));  // random int, inclusive
 const rpick = arr => arr[Math.floor(R() * arr.length)];
