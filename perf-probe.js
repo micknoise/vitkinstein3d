@@ -2,8 +2,26 @@
 // per room. Runs under swiftshader so wall-clock is not meaningful, but the
 // counts are exactly the numbers the optimisation is aimed at.
 const { chromium } = require('playwright');
-const seeds = process.argv[2] ? [process.argv[2]] : [424242];
+const TEST_SEEDS = [7, 1234, 99999, 424242, 8675309];
+const arg = process.argv[2];
+const seeds = !arg ? [424242] : (arg === 'all' ? TEST_SEEDS : [arg]);
 const label = process.argv[3] || 'baseline';
+
+// E4: the budget. The optimisation pass and the E1 merge are worth nothing if
+// they erode a room at a time over the next six months with nobody noticing,
+// so the numbers are a test and not just a report. These are the worst values
+// measured across the five test seeds after E1, with about ten per cent on top
+// -- tight enough that a real regression trips them, loose enough that they do
+// not go off because a generated house came out slightly busier. If a change
+// legitimately needs more, raise them deliberately and say why in the commit.
+const BUDGET = {
+  roomCalls: 280,        // worst measured 251, storeroom on seed 8675309
+  roomTriangles: 11000,  // worst measured 9814, front room on seed 1234
+  meshes: 640,           // worst measured 573
+  geometries: 640,       // worst measured 568
+  programs: 20           // measured 16 everywhere
+};
+const breaches = [];
 
 (async () => {
   const b = await chromium.launch({
@@ -14,8 +32,11 @@ const label = process.argv[3] || 'baseline';
     const errs = []; p.on('pageerror', e => errs.push(e.message));
     await p.goto('file://' + process.cwd() + '/index.html?seed=' + seed);
     await p.waitForFunction(() => !!window.VK, null, { timeout: 90000 });
-    await p.evaluate(() => document.getElementById('title').style.display = 'none');
-    await p.waitForTimeout(1500);
+    await p.evaluate(() => {
+      document.getElementById('title').style.display = 'none';
+      VK.freeze(12);                                 // counts must not depend on
+      for (let i = 0; i < 240; i++) VK.tick(1);      // how fast the machine ran
+    });
 
     const out = await p.evaluate(() => {
       const r = VK.renderer || (window.VK && VK.rendererRef);
@@ -39,6 +60,7 @@ const label = process.argv[3] || 'baseline';
       const rows = [];
       for (const k of keys) {
         VK.goSpace(k);
+        VK.tick(2);
         for (let i = 0; i < 8; i++) await frame();
         const info = VK.info();
         const t0 = performance.now();
@@ -61,7 +83,30 @@ const label = process.argv[3] || 'baseline';
         String(r.ms).padStart(6));
     }
     if (errs.length) console.log('ERRORS', errs);
+
+    // --- the budget ---------------------------------------------------------
+    const over = (what, got, cap, where) => {
+      if (got > cap) breaches.push(`seed ${seed}: ${where} ${what} ${got} over the ${cap} budget`);
+    };
+    over('meshes', out.meshes, BUDGET.meshes, 'scene');
+    over('geometries', out.geometries, BUDGET.geometries, 'scene');
+    if (typeof perRoom !== 'string') for (const r of perRoom) {
+      over('draw calls', r.calls, BUDGET.roomCalls, r.room);
+      over('triangles', r.triangles, BUDGET.roomTriangles, r.room);
+      over('shader programs', r.programs, BUDGET.programs, r.room);
+    }
     await p.close();
   }
   await b.close();
+
+  if (breaches.length) {
+    console.log('\nOVER BUDGET');
+    for (const line of breaches) console.log('  ' + line);
+    console.log('\n' + breaches.length + ' over budget. Either the change costs more than it should,');
+    console.log('or the budget in perf-probe.js needs raising on purpose.');
+    process.exit(1);
+  }
+  console.log('\nwithin budget (' + seeds.length + ' seed' + (seeds.length > 1 ? 's' : '') +
+              '): rooms under ' + BUDGET.roomCalls + ' draw calls and ' + BUDGET.roomTriangles +
+              ' triangles, scene under ' + BUDGET.geometries + ' geometries');
 })();
