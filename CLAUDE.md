@@ -13,7 +13,8 @@ npm test                      # 18 checks x 5 seeds, headless; must be green
 npm test 424242               # one seed
 npm run perf                  # draw calls / triangles / lights per room
 npm run shots 424242          # a screenshot of every room and every portal
-npm run compare -- old.html shots/before 424242
+npm run compare -- old.html shots/before 424242 '&pr=1'
+npm run diff shots/before shots/after   # 0.00% between two runs of one build
 ```
 
 `index.html` is a build output **and is committed** — GitHub Pages serves it
