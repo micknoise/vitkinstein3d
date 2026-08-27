@@ -38,15 +38,20 @@ Seed 424242, twelve rooms, `npm run perf` (counts are meaningful; the
 swiftshader millisecond figures are not):
 
 ```
-scene            1017 meshes   478 shadow casters   95 materials   1012 geometries
+scene            573 meshes   269 shadow casters   95 materials   568 geometries
 lights           13 in scene (12 pool + hemisphere), 2 casting
-draw calls       22 – 334 per room   (worst: storeroom 334, front room 292)
-triangles        144 – 6062 per room
+draw calls       18 – 175 per room   (worst: storeroom 175, kitchen 166)
+triangles        264 – 6434 per room
 shader programs  16
 ```
 
-The number to attack is **1012 geometries / 334 draw calls in a busy room**, and
-it is E1 below. Everything else has headroom.
+Before E1 this was 1017 meshes / 1012 geometries and 22–334 draw calls. The
+remaining calls are mostly *not* mergeable and should not be attacked: a room's
+count is now dominated by its grabbable objects, which stay individual on
+purpose (§2), plus the transparent decals, which have to stay separately sorted.
+Triangles went slightly *up*, because a merged room-sized mesh is no longer
+frustum-culled piece by piece — the right trade, since triangles were never the
+constraint.
 
 ---
 
@@ -327,7 +332,7 @@ the same objects.
 
 ## 7. Track E — craft, and the things that unblock the rest
 
-### E1 · Merge the statics (do this first)
+### E1 · Merge the statics — **done, 2026-08-27**
 **Claim.** 1012 geometries and 334 draw calls in a room is the ceiling on
 everything else in this document. Per-room merged geometry for walls, trim,
 linings and non-grabbable furniture should take a busy room under 60 calls.
@@ -412,5 +417,6 @@ actual product of the plan.
 |---|---|---|---|
 | 2026-08-27 | **baseline — v0.2 as played** | works | Played on real hardware. Does what it is supposed to do; a genuinely weird experience. This is the control condition every later experiment is judged against — if a change makes it *more* interesting but *less* weird, it has failed. |
 | 2026-08-27 | **observed play loop** | finding | Players work out the architecture is impossible, then place objects in rooms as markers to tell whether they have been there, then realise what is happening. Undesigned and emergent. Recorded in full as §2; it reorders the plan, kills A3, and creates A4. |
+| 2026-08-27 | **E1 — merge the statics** | kept | Per-room, per-material merge of everything that never moves: 1017 meshes → 573, 1012 geometries → 568, worst room 334 draw calls → 175, front room 295 → 157. Shadow casters 478 → 269. Pixel A/B worst view 0.15%, under the 0.19% same-build noise floor — the picture did not move. Did not reach the "<60 calls" guess in E1, and that guess was wrong rather than the work: what is left is grabbables (individual by §2) and depth-sorted decals, neither of which should be merged. Load unchanged. |
 | 2026-08-27 | **textures were never seeded** | fixed | `00-textures.js` drew every crack, stain and mould patch with `Math.random()`, so `?seed=N` reproduced a house's *layout* but never its *surfaces*. The screenshot A/B in §3 could therefore never have worked: the same build photographed twice differed on 41% of its pixels, which is more than the E1 merge changed. Surfaces now run on `TR`, a second stream seeded from `SEED` and kept deliberately separate from the generator's `R` so that existing seeds keep their layouts. Same-build control is now 0.00%. Found by running the control before trusting the comparison — worth doing again. |
 | 2026-08-27 | **A5 — remove the room names** | killed before building | The names are the main reason people work out what is going on: they are the vocabulary that makes *the front room, again* legible as evidence. Proposed on the theory that they were doing the player's work; they are doing the opposite. Settled, not deprioritised. Turned into A6, which uses naming as a lever instead of removing it. |

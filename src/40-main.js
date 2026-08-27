@@ -210,6 +210,7 @@ function init() {
   buildPortals();
   initPortalSides();
   buildRoomGraph();
+  mergeStatics();
   freezeStatics();
   initInput(canvas);
 
@@ -261,6 +262,7 @@ function init() {
     get scene() { return scene; }, get camera() { return camera; },
     get world() { return world; }, get spaces() { return SPACES; },
     MAT, PROPS, doors, PORTALS,
+    get mergeStats() { return mergeStats; },
     freeze(t) { frozenAt = t === undefined ? 12 : t; },
     thaw() { frozenAt = null; clock.getDelta(); },
     go(x, y, z, look, tilt) {

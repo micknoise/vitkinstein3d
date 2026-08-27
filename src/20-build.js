@@ -423,6 +423,134 @@ function buildRoomGraph() {
   }
 }
 
+
+// --- E1: merge the statics ---------------------------------------------------
+//
+// A busy room was 334 draw calls because every skirting board, every wall
+// segment and every stick of furniture was its own mesh. None of them ever
+// move, and within a room most of them share a material, so they can be one
+// piece of geometry per material and drawn once.
+//
+// What deliberately stays individual:
+//   - anything with a rigid body of its own (the grabbables -- PLAN §2: they
+//     are the instrument the player navigates with, and they must stay
+//     takeable, placeable and separate)
+//   - anything hung on a door pivot, which rotates
+//   - anything transparent: the grime and mould decals are depth-sorted, and
+//     sorting only works if they are still separate objects
+//   - anything alone in its group, which would gain nothing
+
+function mergeGeometries(entries) {
+  const first = entries[0].geo;
+  const names = ['position', 'normal', 'uv'].filter(n => first.attributes[n]);
+  let vTotal = 0, iTotal = 0;
+  for (const e of entries) {
+    vTotal += e.geo.attributes.position.count;
+    iTotal += e.geo.index ? e.geo.index.count : e.geo.attributes.position.count;
+  }
+
+  const out = new THREE.BufferGeometry();
+  const dst = {};
+  for (const n of names) dst[n] = new Float32Array(vTotal * first.attributes[n].itemSize);
+  const idx = new Uint32Array(iTotal);
+
+  const nrm = new THREE.Matrix3();
+  const v = new THREE.Vector3();
+  let vAt = 0, iAt = 0;
+
+  for (const e of entries) {
+    const geo = e.geo, m = e.matrix;
+    nrm.getNormalMatrix(m);
+    const count = geo.attributes.position.count;
+
+    for (const n of names) {
+      const src = geo.attributes[n], size = src.itemSize, o = dst[n];
+      for (let i = 0; i < count; i++) {
+        if (n === 'position') {
+          v.fromBufferAttribute(src, i).applyMatrix4(m);
+          o[(vAt + i) * 3] = v.x; o[(vAt + i) * 3 + 1] = v.y; o[(vAt + i) * 3 + 2] = v.z;
+        } else if (n === 'normal') {
+          v.fromBufferAttribute(src, i).applyMatrix3(nrm).normalize();
+          o[(vAt + i) * 3] = v.x; o[(vAt + i) * 3 + 1] = v.y; o[(vAt + i) * 3 + 2] = v.z;
+        } else {
+          for (let c = 0; c < size; c++) o[(vAt + i) * size + c] = src.getComponent(i, c);
+        }
+      }
+    }
+
+    if (geo.index) {
+      const si = geo.index;
+      for (let i = 0; i < si.count; i++) idx[iAt + i] = si.getX(i) + vAt;
+      iAt += si.count;
+    } else {
+      for (let i = 0; i < count; i++) idx[iAt + i] = vAt + i;
+      iAt += count;
+    }
+    vAt += count;
+  }
+
+  for (const n of names) out.setAttribute(n, new THREE.BufferAttribute(dst[n], first.attributes[n].itemSize));
+  out.setIndex(new THREE.BufferAttribute(idx, 1));
+  out.computeBoundingSphere();
+  return out;
+}
+
+function mergeStatics() {
+  const moving = new Set();
+  for (const { mesh } of dynamicPairs) mesh.traverse(o => moving.add(o));
+  for (const d of doors) d.pivot.traverse(o => moving.add(o));
+
+  const inv = new THREE.Matrix4();
+  let before = 0, after = 0;
+
+  for (const key in roomGroups) {
+    const g = roomGroups[key];
+    g.updateMatrixWorld(true);
+    inv.copy(g.matrixWorld).invert();
+
+    const buckets = new Map();
+    g.traverse(o => {
+      if (!o.isMesh || moving.has(o)) return;
+      before++;
+      if (Array.isArray(o.material)) return;
+      const mat = o.material;
+      if (mat.transparent || mat.depthWrite === false) return;
+      if (o.userData.noRay) return;
+      const geo = o.geometry;
+      if (!geo || !geo.attributes.position) return;
+      // a BoxGeometry carries six material groups even when it has one material;
+      // that is harmless, the merged geometry simply has none
+      // a merged mesh is drawn as one thing, so everything in a bucket has to
+      // agree on how it is drawn as well as on what it is drawn with
+      const k = mat.uuid + '|' + (o.castShadow ? 1 : 0) + '|' + (o.receiveShadow ? 1 : 0);
+      let b = buckets.get(k);
+      if (!b) buckets.set(k, b = { mat, cast: o.castShadow, receive: o.receiveShadow, entries: [], meshes: [] });
+      b.entries.push({ geo, matrix: new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld) });
+      b.meshes.push(o);
+    });
+
+    for (const b of buckets.values()) {
+      if (b.entries.length < 2) continue;
+      const merged = new THREE.Mesh(mergeGeometries(b.entries), b.mat);
+      merged.castShadow = b.cast;
+      merged.receiveShadow = b.receive;
+      merged.matrixAutoUpdate = false;
+      merged.updateMatrix();
+      for (const m of b.meshes) { m.parent.remove(m); m.geometry.dispose(); }
+      g.add(merged);
+    }
+
+    // groups emptied by the merge -- a static compound whose parts all went
+    for (const child of g.children.slice())
+      if (!child.isMesh && !child.isLight && child.children.length === 0 && !moving.has(child)) g.remove(child);
+
+    g.traverse(o => { if (o.isMesh) after++; });
+  }
+  mergeStats = { before, after };
+}
+
+let mergeStats = { before: 0, after: 0 };
+
 // Positions never change after the building is up, so stop recomputing the
 // matrices of a thousand things that are standing still. Anything with a rigid
 // body of its own, and anything hung on a door, keeps updating.
