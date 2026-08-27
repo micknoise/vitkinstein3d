@@ -76,6 +76,11 @@ URL flags: `?seed=N`, `?perf=1`, `?pr=N` (pin pixel ratio), `?nograin=1`.
 - No narrative, no NPCs, no combat, no fail state.
 - No external requests, no image assets, one file.
 - Walking speed stays 2.15 m/s.
+- **The room-name prompt stays**, and stays as it is. It is how players work out
+  what is happening — see `PLAN.md` §2 and A5. Rooms deliberately labelled `'—'`
+  stay silent.
+- Grabbable objects stay individual and dependable. They are what players use to
+  navigate; do not merge, pool or stabilise them away.
 - One experiment per branch (`exp/<name>`); record the verdict in `PLAN.md` §9,
   including for the ones you throw away.
 - `npm run perf` before and after anything touching rendering; put both sets of

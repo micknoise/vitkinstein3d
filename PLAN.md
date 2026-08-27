@@ -65,8 +65,19 @@ designed. Three things follow, and they govern everything below.
 dressing — the thing players reach for to think with. Anything that makes
 objects less reliable, less takeable or less placeable damages the central
 mechanic. And anything that does the marking *for* the player — footprints,
-breadcrumbs, a map, a compass, room names — takes the discovery away and does it
-worse than they do.
+breadcrumbs, a map, a compass — takes the discovery away and does it worse than
+they do.
+
+**The room names are how people work it out.** Naming each space on entry is not
+a navigation aid and must not be treated as one. It is the vocabulary the player
+reasons with: seeing *the front room* twice in one house, or being told you are
+in *the kitchen* somewhere a kitchen cannot possibly be, is the evidence that
+the architecture is impossible. Take the names away and the marking behaviour
+loses the thing it is marking *about*. This is settled — see A5.
+
+The corollary is already in the build and is now justified: the warehouse and
+the plant room are labelled `'—'` and announce nothing. The rooms you cannot
+name are the rooms you cannot reason about, and they should stay silent.
 
 **Realisation is the reward.** No fail state, nothing to collect: the arc is
 entirely epistemic. Confusion → method → understanding. Judge every experiment
@@ -103,7 +114,9 @@ deliberately, but nothing should erode them by accident:
 - **No narrative, no NPCs, no combat, no fail state.** The subject is perception
   and the uncanny. Anything that explains the house makes it less frightening.
 - **No navigation aids.** No map, no compass, no markers the game places. §2 is
-  the reason: players build their own, and that is the game.
+  the reason: players build their own, and that is the game. **The room-name
+  prompt is not one of these** — it names, it does not locate, and naming is how
+  players work out what is happening. It stays.
 - **Rooms stay recognisable.** The dread depends on a specific front room being
   where a front room cannot be. Abstraction is the enemy of this, not the aim.
 - **Objects stay dependable.** Takeable, placeable, and where you left them,
@@ -181,17 +194,32 @@ to tell whether they did it.
 legible as a designed signal it stops working.
 **Size.** Medium. Needs a light record of player placements; no new rendering.
 
-### A5 · Take the room names away
-**Claim.** The game currently prints "the front room", "the passage" on first
-entry — free landmarks, in a game whose players are building their own landmark
-system out of crockery. It may be doing the player's work for them.
-**Smallest version.** A flag that suppresses the label prompt. Play both.
-**How you'll know.** With labels off, does the marking behaviour start earlier
-and get more elaborate?
-**Kill if.** Without them the building loses its domestic register and reads as
-abstract space — the labels may be carrying more tone than they look like they
-are. This is a genuine risk, not a formality.
-**Size.** Trivial. One line, and the highest information per minute in the file.
+### A5 · Take the room names away — **settled: no, keep them**
+Proposed on the theory that naming each room was doing the player's work for
+them. Wrong, and usefully so: the names are the main reason people work out
+what is going on. They are not a landmark system, they are the vocabulary — the
+thing that makes *the front room, again* legible as evidence rather than as
+déjà vu. Removing them would leave players marking rooms with no way to say
+what they had found.
+
+Kept here as a closed question. Do not reopen it, and do not quietly erode it
+either: no shortening the prompt to a symbol, no showing it only once per room
+*type*, no moving it into a corner of the HUD. If anything, the names are a
+lever that has not been pulled — see A6.
+
+### A6 · A name that is wrong
+**Claim.** If naming is how the player reasons, then the sharpest available move
+is not to remove a name but to give one that cannot be true.
+**Smallest version.** Once, deep in the house, a space announces itself as
+something it visibly is not — *the kitchen*, printed in a concrete hall.
+**How you'll know.** The player should stop walking.
+**Kill if.** It reads as a bug in the generator rather than as the house saying
+something. The room has to be unmistakably not-a-kitchen, or it is just a
+mislabel.
+**Danger.** This is the same class of move as A1b: it attacks the instrument the
+player is using to understand the building. Once, late, never twice, and not
+until A1a has been played by someone else.
+**Size.** Trivial to build, expensive to get wrong.
 
 ---
 
@@ -321,15 +349,20 @@ Revised after §2. Slow and steady, roughly a session each, each landing on
 1. **E1** merge the statics — buys the headroom for everything else
 2. **E4** perf budget as a test — locks in what E1 wins
 3. **B1** objects through portals — the instrument has to survive the fold
-4. **A5** take the room names away — one line, and it tests §2 directly
-5. **B3** the corridor that returns to itself — cheapest strong idea here
-6. **A1a** change behind your back, markers respected
-7. **C2** spatial sound
-8. **A2** the way back is not the way you came
-9. **A4** the house notices you marking
-10. **C1** depth as a physical fact
-11. **D1** something you have to find — only once the house is worth being in
-12. **A1b** move a marker. Once. Late. Re-judge everything after it.
+4. **B3** the corridor that returns to itself — cheapest strong idea here
+5. **A1a** change behind your back, markers respected
+6. **C2** spatial sound
+7. **A2** the way back is not the way you came
+8. **A4** the house notices you marking
+9. **C1** depth as a physical fact
+10. **D1** something you have to find — only once the house is worth being in
+
+Then, and only then, the two that attack the player's own instruments. Neither
+before someone else has played the build; neither twice; and stop and re-judge
+the whole document after each:
+
+11. **A1b** move a marker
+12. **A6** a name that is wrong
 
 Housekeeping along the way: `README.md` and `SPECIFICATION.md` predate the
 optimisation pass and describe the old lighting and culling — update them when
@@ -361,4 +394,5 @@ actual product of the plan.
 | date | experiment | verdict | why |
 |---|---|---|---|
 | 2026-08-27 | **baseline — v0.2 as played** | works | Played on real hardware. Does what it is supposed to do; a genuinely weird experience. This is the control condition every later experiment is judged against — if a change makes it *more* interesting but *less* weird, it has failed. |
-| 2026-08-27 | **observed play loop** | finding | Players work out the architecture is impossible, then place objects in rooms as markers to tell whether they have been there, then realise what is happening. Undesigned and emergent. Recorded in full as §2; it reorders the plan, kills A3, and creates A4 and A5. |
+| 2026-08-27 | **observed play loop** | finding | Players work out the architecture is impossible, then place objects in rooms as markers to tell whether they have been there, then realise what is happening. Undesigned and emergent. Recorded in full as §2; it reorders the plan, kills A3, and creates A4. |
+| 2026-08-27 | **A5 — remove the room names** | killed before building | The names are the main reason people work out what is going on: they are the vocabulary that makes *the front room, again* legible as evidence. Proposed on the theory that they were doing the player's work; they are doing the opposite. Settled, not deprioritised. Turned into A6, which uses naming as a lever instead of removing it. |
