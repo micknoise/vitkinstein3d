@@ -255,6 +255,8 @@ function traverse(p) {
 // --- rendering ---------------------------------------------------------------
 
 const _frustum = new THREE.Frustum(), _mat4 = new THREE.Matrix4();
+const _ghostPos = new THREE.Vector3(), _ghostQuat = new THREE.Quaternion();
+const _ghostQuat2 = new THREE.Quaternion(), _ghostM = new THREE.Matrix4();
 const _clipPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), _clipList = [_clipPlane], _noClip = [];
 
 // Which faces are worth rendering a view through. Split out from the render so
@@ -291,6 +293,28 @@ function renderPortals(visible) {
 
   for (const p of visible) {
     const M = portalMatrix(p);
+
+    // What is in your hands reaches the portal plane before your eyes do, so
+    // for a step or two the object is past the fold while the camera is not.
+    // It was being hidden by the quad, which sits between the two -- the object
+    // dropped out of your hands and came back once you were through.
+    //
+    // Drawing it over the top would be a lie about where it is. Where it
+    // actually is, is through the doorway: so put it through, for the length of
+    // this pass, and let the portal camera see it. The far clip plane sorts out
+    // which half shows -- an object still on this side maps to behind the far
+    // face and is clipped away, an object past the fold maps into the far room
+    // and is drawn. So the half of a mug that has gone through appears in the
+    // view, and the half that has not is drawn in the room, in front of the
+    // quad, which is exactly what a doorway does.
+    const ghost = held && held.threeObj;
+    if (ghost) {
+      _ghostPos.copy(ghost.position); _ghostQuat.copy(ghost.quaternion);
+      ghost.position.applyMatrix4(M);
+      _ghostQuat2.setFromRotationMatrix(_ghostM.extractRotation(M));
+      ghost.quaternion.premultiply(_ghostQuat2);
+    }
+
     portalCam.aspect = camera.aspect;
     portalCam.fov = camera.fov;
     portalCam.updateProjectionMatrix();
@@ -310,6 +334,8 @@ function renderPortals(visible) {
     renderer.setRenderTarget(p.rt);
     renderer.clear();
     renderer.render(scene, portalCam);
+
+    if (ghost) { ghost.position.copy(_ghostPos); ghost.quaternion.copy(_ghostQuat); }
   }
 
   renderer.shadowMap.enabled = hadShadows;

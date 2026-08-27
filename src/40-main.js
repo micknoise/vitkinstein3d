@@ -263,6 +263,7 @@ function init() {
     get world() { return world; }, get spaces() { return SPACES; },
     MAT, PROPS, doors, PORTALS,
     get mergeStats() { return mergeStats; },
+    get roomGroups() { return roomGroups; },
     get bodyTraversals() { return bodyTraversals; },
     get bodyTraversals() { return bodyTraversals; },
     freeze(t) { frozenAt = t === undefined ? 12 : t; },
@@ -469,13 +470,22 @@ function updateRoomVisibility(portals) {
 // the origin with no rotation, so re-parenting does not move anything.
 function reroom(mesh) {
   const x = mesh.position.x, z = mesh.position.z;
+  let near = null, nd = Infinity;
   for (const b of spaceBounds) {
-    if (x <= b.min[0] || x >= b.max[0] || z <= b.min[1] || z >= b.max[1]) continue;
-    if (mesh.parent !== b.group) b.group.add(mesh);
-    return;
+    if (x > b.min[0] && x < b.max[0] && z > b.min[1] && z < b.max[1]) {
+      if (mesh.parent !== b.group) b.group.add(mesh);
+      return;
+    }
+    // rooms are separate rectangles with walls between them, so a doorway --
+    // and an object standing in one -- is inside none of them. Falling back to
+    // the nearest keeps it drawn instead of leaving it with the visibility of
+    // whichever room it happened to be built in.
+    const dx = Math.max(b.min[0] - x, 0, x - b.max[0]);
+    const dz = Math.max(b.min[1] - z, 0, z - b.max[1]);
+    const d = dx * dx + dz * dz;
+    if (d < nd) { nd = d; near = b; }
   }
-  // outside every room -- thrown through a doorway, mid-air. Leave it where it
-  // is rather than orphaning it.
+  if (near && mesh.parent !== near.group) near.group.add(mesh);
 }
 
 function syncBodies() {

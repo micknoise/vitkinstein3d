@@ -205,6 +205,52 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
       assert(stale.behind === false, 'and not drawn from behind its own plane, where its view is stale');
     }
 
+    // --- what you are holding is drawn while it straddles the fold ----------
+    // The object reaches the plane before the camera does. It is put through
+    // the fold for the length of the portal pass so the portal camera sees it;
+    // if that transform is ever not undone, the thing in your hands walks away
+    // from you, which is a far worse bug than the one it fixes.
+    const straddle = await p.evaluate(async () => {
+      if (!VK.PORTALS.length) return { none: true };
+      const T = VK.THREE;
+      const raf = () => new Promise(r => requestAnimationFrame(() => r()));
+      const a = VK.PORTALS[0];
+      const grabs = [];
+      VK.scene.traverse(o => { if (o.userData && o.userData.grabbable) grabs.push(o); });
+      const stand = a.pos.clone().addScaledVector(a.normal, 2.6);
+      VK.go(stand.x, 0.36, stand.z, Math.atan2(-(a.pos.x - stand.x), -(a.pos.z - stand.z)), 0);
+      VK.tick(30);
+      let best = null, bd = 1e9;
+      for (const g of grabs) {
+        const d = g.getWorldPosition(new T.Vector3()).distanceTo(stand);
+        if (d < bd) { bd = d; best = g; }
+      }
+      if (!best) return { nothing: true };
+      const wp = best.getWorldPosition(new T.Vector3());
+      VK.aimAt(wp.x, wp.y, wp.z); VK.tick(2);
+      if (!VK.grab()) return { nograb: true };
+      VK.aimAt(a.pos.x, a.pos.y, a.pos.z); VK.tick(20);
+
+      // creep up until the object is through and the camera is not
+      let straddled = false, drift = 0;
+      for (let i = 0; i < 10; i++) {
+        VK.press('KeyW', true); VK.tick(12); VK.press('KeyW', false);
+        for (let f = 0; f < 3; f++) await raf();
+        const body = best.userData.body;
+        const objSide = a.normal.dot(best.getWorldPosition(new T.Vector3()).clone().sub(a.pos));
+        const camSide = a.normal.dot(VK.camera.position.clone().sub(a.pos));
+        // the mesh must be where its body is, every frame, portal pass or not
+        drift = Math.max(drift, best.position.distanceTo(new T.Vector3(body.position.x, body.position.y, body.position.z)));
+        if (objSide < 0 && camSide > 0) { straddled = true; break; }
+      }
+      VK.drop();
+      return { straddled, drift };
+    });
+    if (!straddle.none && !straddle.nothing && !straddle.nograb) {
+      assert(straddle.straddled, 'you can carry an object up to a portal so that it is through and you are not');
+      assert(straddle.drift < 0.01, 'and it stays in your hands while it straddles the fold (' + straddle.drift.toFixed(3) + 'm of drift)');
+    }
+
     // --- an object has to survive the fold too ------------------------------
     // The objects are what players navigate with, so a mug that stops dead at a
     // portal, or stops being drawn once it is through, is a hole in the method.
@@ -258,19 +304,41 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
         if (d < bd) { bd = d; best = g; }
       }
       if (!best) return { nothing: true };
-      const wp = best.getWorldPosition(new T.Vector3());
-      VK.aimAt(wp.x, wp.y, wp.z); await raf();
-      if (!VK.grab()) return { nograb: true };
+      // the nearest thing is sometimes wedged in furniture and shakes loose the
+      // moment it is picked up, which would leave the check passing on nothing.
+      // Try the nearest few until one actually stays in your hands.
+      const byDist = grabs
+        .map(g => ({ g, d: g.getWorldPosition(new T.Vector3()).distanceTo(stand) }))
+        .sort((x, y) => x.d - y.d).slice(0, 4);
+      let holding = false;
+      for (const c of byDist) {
+        best = c.g;
+        const wp = best.getWorldPosition(new T.Vector3());
+        VK.aimAt(wp.x, wp.y, wp.z); await raf();
+        if (!VK.grab()) continue;
+        for (let i = 0; i < 6; i++) await raf();
+        if (VK.held()) { holding = true; break; }
+      }
+      if (!holding) return { nograb: true };
       VK.aimAt(a.pos.x, 1.4, a.pos.z);
       VK.press('KeyW', true);
-      let unseen = 0, frames = 0;
-      for (let i = 0; i < 80; i++) { await raf(); frames++; if (!drawn(best)) unseen++; }
+      // only while it is actually in your hands: once it has been put down in
+      // another room, not drawing it is the correct answer
+      let unseen = 0, frames = 0; const why = [];
+      const keyOf = g => { for (const k in VK.roomGroups) if (VK.roomGroups[k] === g) return k; return '?'; };
+      for (let i = 0; i < 80; i++) {
+        await raf();
+        if (!VK.held()) continue;
+        frames++;
+        if (!drawn(best)) { unseen++; why.push({ i, parent: keyOf(best.parent), roomShown: best.parent.visible, playerIn: VK.player().space }); }
+      }
       VK.press('KeyW', false);
       VK.drop();
-      return { unseen, frames, space: VK.player().space, from: a.space };
+      return { unseen, frames, why, space: VK.player().space, from: a.space };
     });
     if (!carried.none && !carried.nothing && !carried.nograb)
-      assert(carried.unseen === 0, 'an object carried through a portal stays drawn (' + carried.unseen + '/' + carried.frames + ' frames missing)');
+      assert(carried.unseen === 0 && carried.frames > 0,
+        'an object carried through a portal stays drawn (' + carried.unseen + '/' + carried.frames + ' frames missing)' + (carried.unseen ? ' ' + JSON.stringify(carried.why) : ''));
 
     // --- settling and cleanliness ------------------------------------------
     const settled = await p.evaluate(() => {
