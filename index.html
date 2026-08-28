@@ -16343,245 +16343,284 @@ function updateHover() {
 }
 
 
-/* ===== 35-video.js ===== */
+/* ===== 35-vision.js ===== */
 // ---------------------------------------------------------------------------
-// THE TAPE.
+// PERCEPTION.
 //
-// Everything you see is footage. A camera strapped to somebody's head, on tape,
-// and not good tape: a wide lens that bends the walls, scan lines, chroma that
-// does not sit quite on top of the luma, interference that comes and goes, and
-// the head-switching bar rolling up the frame every few seconds.
+// One full-screen pass, and it is not a camera. There is no film, no tape, no
+// lens: the defect is in the person looking. What it does is what people
+// describe after two days without sleep, or on a dose of something -- visual
+// snow, surfaces that will not hold still, a periphery that softens and closes
+// in, edges that separate into colour, and a half-second of the last thing you
+// looked at still hanging about after you have looked away.
 //
-// This is one full-screen pass. The scene is drawn into a target instead of
-// onto the canvas, and then this draws the target onto the canvas through the
-// lens and the tape. Rendering to a target means three does not tone-map for
-// us -- off-screen passes stay linear -- so the pass has to finish that job
-// itself, exactly as the portal shader does, and it does it *first*: the
-// artefacts belong to the camera and the tape, so they go on the picture after
-// it has been developed, not before.
+// And it gets worse the further in you are. Not in metres -- in doors. Depth is
+// breadth-first steps from the room you woke up in, over `roomGraph`, which is
+// the only measure that means anything in a building where a doorway can put
+// you half a mile away. Walk deep enough by a short route and you are fine;
+// walk five rooms and you are not. See PLAN C1.
 //
-// ?novhs=1 turns the whole thing off, which is how the screenshot A/B compares
-// what was actually rendered rather than what the tape did to it.
+// Three passes: the world into a target; that mixed with the last frame into an
+// accumulation buffer, which is where the trails come from; and that onto the
+// canvas, warped, blurred, dimmed and grained by however far in you are.
+//
+// ?nofx=1 turns it off, which is what the screenshot A/B compares against.
 // ---------------------------------------------------------------------------
 
-// QS lives in 40-main.js, which is concatenated after this file, so it cannot
-// be read at the top level here -- only from inside a function, by which time
-// everything has run.
-let VHS_OFF = false;
+let FX_OFF = false;
 
-let videoRT = null, videoScene = null, videoCam = null, videoMat = null;
+let sceneRT = null, accumRT = null, prevRT = null;
+let fxScene = null, fxCam = null, accumMat = null, finalMat = null;
+let fxMesh = null;
 
-const VIDEO_VERT = `
+const FX_VERT = `
   varying vec2 vUv;
   void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
 
-const VIDEO_FRAG = `
+// Pass one: tone-map the world, and mix in what was there a frame ago. The
+// trail is the whole reason this is a separate pass -- it needs a buffer that
+// survives the frame.
+const ACCUM_FRAG = `
   precision highp float;
-  uniform sampler2D tex;
-  uniform vec2  res;
-  uniform float time;
+  uniform sampler2D world;
+  uniform sampler2D prev;
   uniform float exposure;
-  uniform float burstAmt;   // worked out on the CPU, see burstAt()
-  uniform float barPos;     // where the head-switching bar is, 0..1 down the frame
-  uniform float barHalf;    // and how deep it is, as a fraction of frame height
+  uniform float trail;
   varying vec2 vUv;
-
-  // ACES, the same fit the portals use, because this pass is now the only
-  // thing that tone-maps and the two have to agree
   vec3 rrt(vec3 v) {
     vec3 a = v * (v + 0.0245786) - 0.000090537;
     vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081;
     return a / b;
   }
-  vec3 tonemap(vec3 c) {
+  void main() {
     const mat3 IN  = mat3(0.59719, 0.07600, 0.02840, 0.35458, 0.90834, 0.13383, 0.04823, 0.01566, 0.83777);
     const mat3 OUT = mat3(1.60475, -0.10208, -0.00327, -0.53108, 1.10813, -0.07276, -0.07367, -0.00605, 1.07602);
+    vec3 c = texture2D(world, vUv).rgb * exposure;
     c = clamp(OUT * rrt(IN * c), 0.0, 1.0);
-    return pow(c, vec3(0.4545));
-  }
+    c = pow(c, vec3(0.4545));
+    vec3 p = texture2D(prev, vUv).rgb;
+    // max, not mix: an after-image is something bright that stays, not the
+    // whole frame going muddy. Dark things do not leave trails.
+    gl_FragColor = vec4(max(c, p * trail), 1.0);
+  }`;
+
+const FINAL_FRAG = `
+  precision highp float;
+  uniform sampler2D tex;
+  uniform vec2  res;
+  uniform float time;
+  uniform float dose;        // 0 at the door you came in by, 1 a long way in
+  varying vec2 vUv;
 
   float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-  float noise1(float x) { float i = floor(x); float f = fract(x);
-    return mix(hash(vec2(i, 0.0)), hash(vec2(i + 1.0, 0.0)), f * f * (3.0 - 2.0 * f)); }
 
-  vec3 sampleTape(vec2 uv) {
-    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return vec3(0.0);
-    return tonemap(texture2D(tex, uv).rgb * exposure);
+  // smooth value noise, two octaves -- enough for something to breathe on
+  float vnoise(vec2 p) {
+    vec2 i = floor(p), f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x),
+               mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y);
   }
+  float fbm(vec2 p) { return vnoise(p) * 0.65 + vnoise(p * 2.17 + 11.3) * 0.35; }
 
   void main() {
     vec2 uv = vUv;
-
-    // --- the lens ---------------------------------------------------------
-    // a wide one, bending the walls out at the corners the way a helmet camera
-    // does. Chroma is pulled apart with the same distortion, harder on red.
     vec2 c = uv - 0.5;
     float r2 = dot(c, c);
-    float k = 0.13;
-    // and scaled back in by exactly as much as the corners were pushed out, or
-    // the frame is barrel-distorted into a black border
-    vec2 lens = c * (1.0 + k * r2 + k * 0.55 * r2 * r2) * 0.918;
 
-    // --- the tape ---------------------------------------------------------
-    // The head-switching bar: a band a few scan lines deep that rolls up the
-    // frame, dragging the picture sideways as it passes. Every few seconds,
-    // not every frame, or it stops reading as a fault and starts reading as a
-    // pattern.
-    // Cyclic distance from the bar, 0 on it and 0.5 at the far side of the
-    // frame. Written this way round on purpose: the first version was a
-    // smoothstep with its edges swapped, so it came out as 1 across almost the
-    // whole picture and 0 only in the band -- which dragged every scan line
-    // sideways at 40Hz, all the time, and made the game unplayable. Its
-    // position and its depth come in as numbers so that they can be checked,
-    // rather than being a shape somebody has to squint at.
-    float dy = abs(fract(lens.y + 0.5 - barPos + 0.5) - 0.5);
-    float bar = 1.0 - smoothstep(0.0, barHalf, dy);
-    float tear = bar * (noise1(time * 40.0) - 0.5) * 0.045;
+    // --- the surfaces will not hold still ---------------------------------
+    // Two slow fields at different scales pulling the picture about. Slow is
+    // the whole thing: fast is a wobble, slow is something breathing.
+    float t = time * 0.22;
+    vec2 warp = vec2(
+      fbm(uv * 3.1 + vec2(t, t * 0.7)) - 0.5,
+      fbm(uv * 2.7 + vec2(-t * 0.8, t * 1.1) + 31.7) - 0.5);
+    warp += 0.45 * vec2(
+      fbm(uv * 7.3 + vec2(-t * 1.6, t * 1.3) + 5.1) - 0.5,
+      fbm(uv * 6.9 + vec2(t * 1.4, -t * 1.7) + 17.9) - 0.5);
+    // worse further in, and worse away from where you are looking
+    float amp = (0.0016 + 0.0090 * dose) * (0.45 + 1.9 * r2);
+    vec2 suv = uv + warp * amp;
 
-    // Nothing moves the picture sideways except the bar and a burst. A tape
-    // that is always drifting reads as a camera being shaken, and you cannot
-    // aim at anything through it.
-    float wob = 0.0;
+    // --- the periphery softens and lets go --------------------------------
+    // A handful of taps on a ring that opens up towards the edge of vision.
+    float blur = (0.4 + 3.4 * dose) * smoothstep(0.02, 0.30, r2) / res.y;
+    vec3 col = vec3(0.0);
+    float wsum = 0.0;
+    for (int i = 0; i < 6; i++) {
+      float a = float(i) * 1.0471976 + time * 0.35;
+      vec2 o = vec2(cos(a), sin(a)) * blur * (1.0 + 0.6 * hash(vec2(float(i), 7.0)));
+      // and the colour comes apart as it goes: red drifts out, blue drifts in
+      float k = float(i) / 6.0;
+      vec3 s;
+      s.r = texture2D(tex, suv + o * 1.35).r;
+      s.g = texture2D(tex, suv + o).g;
+      s.b = texture2D(tex, suv + o * 0.70).b;
+      float w = 1.0 - 0.5 * k;
+      col += s * w; wsum += w;
+    }
+    col /= wsum;
+    col = mix(texture2D(tex, suv).rgb, col, smoothstep(0.0, 0.25, blur * res.y));
 
-    // Interference proper. Rare, and when it comes it is violent and quick --
-    // a slow selector decides *whether*, a very fast one decides *what*, so a
-    // burst is a fraction of a second of static rather than a permanent
-    // shimmer. This is the difference between a broken tape and a bad filter.
-    float burst = burstAmt;
+    // --- visual snow ------------------------------------------------------
+    // The thing everybody describes first, and it is not film grain: it is a
+    // fizz that sits in front of the world rather than in it.
+    vec2 gp = uv * res * 0.9;
+    float g1 = hash(floor(gp) + floor(time * 24.0) * 13.7) - 0.5;
+    float g2 = hash(floor(gp * 0.45) + floor(time * 11.0) * 41.3) - 0.5;
+    col += (g1 * 0.62 + g2 * 0.38) * (0.055 + 0.115 * dose);
 
-    // per scan line, redrawn 240 times a second: at that rate the eye reads it
-    // as static rather than as movement
-    float lineJ = (hash(vec2(floor((lens.y + 0.5) * res.y * 0.5), floor(time * 240.0))) - 0.5);
-    // and the whole frame snatches sideways with it
-    float snatch = (noise1(time * 170.0) - 0.5);
-    float slip = burst * (lineJ * 0.052 + snatch * 0.018);
+    // --- the room is not quite the colour it was --------------------------
+    float lum = dot(col, vec3(0.299, 0.587, 0.114));
+    float sway = fbm(uv * 1.6 + vec2(time * 0.07, -time * 0.05)) - 0.5;
+    col = mix(vec3(lum), col, 1.0 + dose * (0.55 + 0.8 * sway));
 
-    // the odd single line thrown right out, which only ever happens mid-burst
-    float dropout = step(0.994, hash(vec2(floor((lens.y + 0.5) * res.y * 0.5), floor(time * 240.0) + 7.0)));
-    slip += burst * dropout * (hash(vec2(floor(time * 240.0), 3.0)) - 0.5) * 0.16;
+    // --- and it closes in -------------------------------------------------
+    // It closes in, but you can still see: at 0.76 with a reach of 0.46 the
+    // deep rooms came out as a black rectangle with grain on it, which is not
+    // a narrowing field of view, it is a fade to black.
+    float vig = 0.30 + 0.24 * dose;
+    float reach = mix(1.00, 0.62, dose);
+    col *= 1.0 - vig * smoothstep(0.06, reach, r2);
 
-    vec2 off = vec2(tear + wob + slip, 0.0);
-
-    // --- chroma, pulled apart --------------------------------------------
-    vec2 base = lens + 0.5 + off;
-    float rr = sampleTape(base + lens * 0.0042).r;
-    vec3  gg = sampleTape(base);
-    float bb = sampleTape(base - lens * 0.0030).b;
-    vec3 col = vec3(rr, gg.g, bb);
-
-    // luma smear to the right, which is what makes it read as tape and not as
-    // a filter: chroma bandwidth on VHS is a fraction of luma's
-    col = mix(col, sampleTape(base - vec2(2.2 / res.x, 0.0)), 0.16);
-
-    // --- scan lines and shadow mask ---------------------------------------
-    float sl = 0.5 + 0.5 * sin((lens.y + 0.5) * res.y * 3.14159);
-    col *= 1.0 - 0.13 * sl;
-    col *= 1.0 - 0.05 * (0.5 + 0.5 * sin((lens.x + 0.5) * res.x * 3.14159 * 0.5));
-
-    // --- noise, and the bar itself ----------------------------------------
-    float grain = hash(uv * res + fract(time) * 91.7) - 0.5;
-    col += grain * (0.115 + 0.24 * burst);
-    // a second, coarser grain -- tape noise is not one grain size
-    float grain2 = hash(floor(uv * res * 0.5) + fract(time * 1.7) * 53.3) - 0.5;
-    col += grain2 * (0.05 + 0.16 * burst);
-    col += bar * 0.055;
-    col += burst * 0.045;                                  // static lifts the black
-
-    // --- the tube ----------------------------------------------------------
-    col *= 1.0 - 0.62 * smoothstep(0.30, 0.95, r2);      // vignette, heavy but not a tunnel
-    col = mix(vec3(dot(col, vec3(0.299, 0.587, 0.114))), col, 0.86);   // tape desaturates
-    col = clamp(col * 1.03 - 0.008, 0.0, 1.0);
-
-    // outside the lens there is no tape at all
-    float inside = step(0.0, base.x) * step(base.x, 1.0) * step(0.0, base.y) * step(base.y, 1.0);
-    gl_FragColor = vec4(col * inside, 1.0);
+    gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
   }`;
 
-// How hard the tape is breaking up, right now.
-//
-// This is worked out here rather than in the shader because it has to be
-// *rare*, and rare is the one thing hash-and-smoothstep noise is bad at: you
-// end up either with a permanent shimmer or, if you push the threshold up to
-// stop that, with nothing at all for minutes. Here it is simply stated: a
-// window every few seconds, most of them empty, and when one is not empty it
-// lasts a couple of hundred milliseconds and is violent.
-// The head-switching bar: a couple of scan lines deep, rolling up the frame
-// about once every eight seconds.
-const BAR_HALF = 0.028;           // fraction of the frame height, each side
-const BAR_SPEED = 0.13;           // frames per second, so ~7.7s to cross
-function barAt(t) { const p = (t * BAR_SPEED) % 1; return p < 0 ? p + 1 : p; }
-
-const BURST_EVERY = 6.5;          // seconds between chances of one
-const BURST_ODDS = 0.45;          // how many of those chances come to anything
-function bhash(n) { const s = Math.sin(n * 12.9898 + 78.233) * 43758.5453; return s - Math.floor(s); }
-function burstAt(t) {
-  const i = Math.floor(t / BURST_EVERY);
-  const pick = bhash(i);
-  if (pick > BURST_ODDS) return 0;
-  const dur = 0.09 + bhash(i + 101) * 0.20;
-  const at = bhash(i + 57) * (BURST_EVERY - dur - 0.2);
-  const u = (t - i * BURST_EVERY - at) / dur;
-  if (u < 0 || u > 1) return 0;
-  return Math.pow(Math.sin(u * Math.PI), 0.55);   // on hard, off hard
+// --- how far in you are ------------------------------------------------------
+// Breadth-first over roomGraph from the room you woke up in. Metres are
+// meaningless here: a portal can put the far side of the house one step away,
+// and that is the point of it.
+// A doorway costs one. A fold costs two: you have not walked further, but you
+// have been taken further, and the point of the measure is dislocation rather
+// than distance. roomGraph knows about doorways only -- portals are not in it,
+// which is why the reachability check in test.js adds them by hand -- so this
+// adds them here too, or the warehouse would have no depth at all.
+const STEP_DOOR = 1, STEP_FOLD = 2;
+let _depthOf = null, _deepest = 1;
+function roomDepths() {
+  if (_depthOf) return _depthOf;
+  const d = {}, start = START.space;
+  for (const k in SPACES) d[k] = Infinity;
+  d[start] = 0;
+  const edges = k => {
+    const out = [];
+    for (const n of (roomGraph[k] || [])) out.push([n, STEP_DOOR]);
+    for (const p of PORTALS) {
+      if (p.space === k) out.push([p.other.space, STEP_FOLD]);
+      else if (p.other.space === k) out.push([p.space, STEP_FOLD]);
+    }
+    return out;
+  };
+  // a dozen rooms and two edge weights; relaxing until it settles is plenty
+  for (let pass = 0; pass < 40; pass++) {
+    let moved = false;
+    for (const k in d) {
+      if (d[k] === Infinity) continue;
+      for (const [n, w] of edges(k)) if (d[n] > d[k] + w) { d[n] = d[k] + w; moved = true; }
+    }
+    if (!moved) break;
+  }
+  _deepest = Math.max(1, ...Object.values(d).filter(v => isFinite(v)));
+  _depthOf = d;
+  return d;
 }
 
-function initVideo() {
-  VHS_OFF = QS.has('novhs');
-  if (VHS_OFF) return;
-  const size = new THREE.Vector2();
-  renderer.getDrawingBufferSize(size);
-  videoRT = new THREE.WebGLRenderTarget(size.x, size.y, {
+const DOSE_AT_START = 0.16;      // present from the first room, not absent
+let dose = DOSE_AT_START;
+
+// Scaled to this house rather than to a fixed number of doors: houses come out
+// between nine and thirteen rooms and a fixed scale leaves the deepest room in
+// a small one only two thirds of the way there. Wherever the far end of *this*
+// building is, that is as bad as it gets.
+function doseFor(spaceKey) {
+  const all = roomDepths();
+  const d = all[spaceKey];
+  if (d === undefined || !isFinite(d)) return 1.0;
+  return DOSE_AT_START + (1 - DOSE_AT_START) * Math.min(1, d / Math.max(3, _deepest));
+}
+
+// eased, so walking through a door does not snap the whole screen
+function updateDose(spaceKey, dt) {
+  const target = doseFor(spaceKey || START.space);
+  dose += (target - dose) * Math.min(1, dt * 0.55);
+  return dose;
+}
+
+function makeRT(w, h) {
+  return new THREE.WebGLRenderTarget(w, h, {
     depthBuffer: true, stencilBuffer: false,
     minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter
   });
-  videoMat = new THREE.ShaderMaterial({
+}
+
+function initVision() {
+  FX_OFF = QS.has('nofx');
+  if (FX_OFF) return;
+  const size = new THREE.Vector2();
+  renderer.getDrawingBufferSize(size);
+  sceneRT = makeRT(size.x, size.y);
+  accumRT = makeRT(size.x, size.y);
+  prevRT = makeRT(size.x, size.y);
+
+  accumMat = new THREE.ShaderMaterial({
     uniforms: {
-      tex: { value: videoRT.texture },
-      res: { value: new THREE.Vector2(size.x, size.y) },
-      time: { value: 0 },
-      // the tape costs about a third of a stop between the scan lines, the
-      // vignette and the desaturation; give it back before any of that happens
-      exposure: { value: renderer.toneMappingExposure * 1.28 },
-      burstAmt: { value: 0 },
-      barPos: { value: 0 },
-      barHalf: { value: BAR_HALF }
+      world: { value: sceneRT.texture }, prev: { value: prevRT.texture },
+      exposure: { value: renderer.toneMappingExposure * 1.06 },
+      trail: { value: 0 }
     },
-    vertexShader: VIDEO_VERT, fragmentShader: VIDEO_FRAG,
-    depthTest: false, depthWrite: false
+    vertexShader: FX_VERT, fragmentShader: ACCUM_FRAG, depthTest: false, depthWrite: false
   });
-  // one triangle covering the screen; a quad has a seam down the diagonal on
-  // some drivers and there is no reason to give it one
+  finalMat = new THREE.ShaderMaterial({
+    uniforms: {
+      tex: { value: accumRT.texture },
+      res: { value: new THREE.Vector2(size.x, size.y) },
+      time: { value: 0 }, dose: { value: DOSE_AT_START }
+    },
+    vertexShader: FX_VERT, fragmentShader: FINAL_FRAG, depthTest: false, depthWrite: false
+  });
+
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 3, -1, 0, -1, 3, 0], 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 2, 0, 0, 2], 2));
-  const mesh = new THREE.Mesh(g, videoMat);
-  mesh.frustumCulled = false;
-  videoScene = new THREE.Scene();
-  videoScene.add(mesh);
-  videoCam = new THREE.Camera();
+  fxMesh = new THREE.Mesh(g, accumMat);
+  fxMesh.frustumCulled = false;
+  fxScene = new THREE.Scene();
+  fxScene.add(fxMesh);
+  fxCam = new THREE.Camera();
 }
 
-function resizeVideo() {
-  if (!videoRT) return;
+function resizeVision() {
+  if (!sceneRT) return;
   const size = new THREE.Vector2();
   renderer.getDrawingBufferSize(size);
-  videoRT.setSize(size.x, size.y);
-  videoMat.uniforms.res.value.set(size.x, size.y);
+  for (const rt of [sceneRT, accumRT, prevRT]) rt.setSize(size.x, size.y);
+  finalMat.uniforms.res.value.set(size.x, size.y);
 }
 
-// Draw the world into the target, then the target onto the canvas through the
-// lens and the tape. With ?novhs=1 this is an ordinary render straight to the
-// canvas, tone-mapped by three in the usual way.
-function renderVideo(t) {
-  if (!videoRT) { renderer.render(scene, camera); return; }
-  videoMat.uniforms.time.value = t;
-  videoMat.uniforms.burstAmt.value = burstAt(t);
-  videoMat.uniforms.barPos.value = barAt(t);
-  renderer.setRenderTarget(videoRT);
+function renderVision(t, dt, spaceKey) {
+  if (!sceneRT) { renderer.render(scene, camera); return; }
+  const d = updateDose(spaceKey, dt);
+
+  renderer.setRenderTarget(sceneRT);
   renderer.clear();
   renderer.render(scene, camera);
+
+  // world + last frame -> accumulation
+  accumMat.uniforms.prev.value = prevRT.texture;
+  accumMat.uniforms.trail.value = 0.25 + 0.52 * d;
+  fxMesh.material = accumMat;
+  renderer.setRenderTarget(accumRT);
+  renderer.render(fxScene, fxCam);
+
+  // accumulation -> screen, through however far in you are
+  finalMat.uniforms.tex.value = accumRT.texture;
+  finalMat.uniforms.time.value = t;
+  finalMat.uniforms.dose.value = d;
+  fxMesh.material = finalMat;
   renderer.setRenderTarget(null);
-  renderer.render(videoScene, videoCam);
+  renderer.render(fxScene, fxCam);
+
+  const swap = prevRT; prevRT = accumRT; accumRT = swap;
 }
 
 
@@ -16844,7 +16883,7 @@ function init() {
 
   initPlayer();
   buildPortals();
-  initVideo();
+  initVision();
   initPortalSides();
   buildRoomGraph();
   mergeStatics();
@@ -16873,7 +16912,7 @@ function init() {
     camera.updateProjectionMatrix();
     renderer.setSize(innerWidth, innerHeight);
     resizePortals();
-    resizeVideo();
+    resizeVision();
   });
 
   const startGame = () => {
@@ -16900,8 +16939,9 @@ function init() {
     get scene() { return scene; }, get camera() { return camera; },
     get world() { return world; }, get spaces() { return SPACES; },
     MAT, PROPS, doors, PORTALS, Audio,
-    burstAt, barAt,
-    get barHalf() { return BAR_HALF; },
+    get dose() { return dose; },
+    doseFor, roomDepths,
+    get deepest() { return _deepest; },
     get mergeStats() { return mergeStats; },
     get driftCount() { return driftCount; },
     get allLights() { return allLights; },
@@ -17279,8 +17319,9 @@ function animate() {
   updateRoomVisibility(shownPortals);
   renderPortals(shownPortals);
   updateLightPool(camera.position);
-  // everything you see is footage; see 35-video.js
-  renderVideo(frozenAt !== null ? frozenAt : nowMs * 0.001);
+  // the defect is in the person looking; see 35-vision.js
+  renderVision(frozenAt !== null ? frozenAt : nowMs * 0.001,
+               frozenAt !== null ? 1 : dt, currentSpace);
 }
 
 // If the machine cannot hold the frame, give it fewer pixels rather than a
@@ -17304,7 +17345,7 @@ function adaptResolution(now) {
   renderer.setPixelRatio(pixelRatio);
   renderer.setSize(innerWidth, innerHeight);
   resizePortals();
-  resizeVideo();
+  resizeVision();
 }
 
 let promptTimer = null;

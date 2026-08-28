@@ -37,7 +37,7 @@ scope and there are no imports. Load order matters.
 | `src/20-build.js` | plan → geometry, rigid bodies, light descriptions, room groups |
 | `src/25-portal.js` | portal rendering and traversal |
 | `src/30-player.js` | the body, the hands, the doors |
-| `src/35-video.js` | the tape: the whole frame, through a helmet camera |
+| `src/35-vision.js` | perception: grain, warp, periphery and after-images, by depth |
 | `src/40-main.js` | sound, screen, the frame loop, the light pool, visibility |
 
 **Everything random must come from `05-rng.js`,** never `Math.random()`, or
@@ -74,7 +74,7 @@ generated building and a hand-written one are the same kind of thing.
 `spaces`, `count()`, `info()`, `PORTALS`, `renderer`.
 
 URL flags: `?seed=N`, `?perf=1`, `?pr=N` (pin pixel ratio), `?nograin=1`,
-`?nodrift=1` (stop rooms changing behind you), `?novhs=1` (raw render, no tape).
+`?nodrift=1` (stop rooms changing behind you), `?nofx=1` (raw render, no perception pass).
 
 ## House rules
 

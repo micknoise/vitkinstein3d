@@ -99,7 +99,7 @@ build step for anyone who just wants to play it.
 | `src/20-build.js` | turns a plan into geometry and rigid bodies |
 | `src/25-portal.js` | portal rendering and traversal |
 | `src/30-player.js` | the body, the hands, the doors |
-| `src/35-video.js` | the tape: one full-screen pass, camera and VHS |
+| `src/35-vision.js` | perception: one full-screen pass, driven by how far in you are |
 | `src/40-main.js` | sound, screen, loop |
 | `shell.html` | the page the build is injected into |
 | `SPECIFICATION.md` | what it is meant to do, as a checklist someone can assess it against |
@@ -118,13 +118,17 @@ there is nothing — no ground, no sky, nothing to judge a distance against. The
 glass. Daylight comes through it anyway, in a shaft down onto the floor, and nothing out there
 accounts for it.
 
-## Everything you see is footage
+## You are not seeing this very well
 
-The frame is not the render. The world is drawn into a target and the target is drawn onto the
-screen through a camera strapped to somebody's head and a tape that has been used before: a wide
-lens that bends the walls, scan lines, chroma that does not sit quite on the luma, interference that
-comes and goes, and the head-switching bar rolling up the picture every few seconds. 
-shows you the raw render.
+One full-screen pass, and the defect is in the person looking rather than in a
+camera: visual snow, surfaces that will not hold still, a periphery that softens
+and closes in, edges separating into colour, and the last bright thing you
+looked at still hanging about after you have looked away.
+
+It gets worse the further in you are — not in metres, in **doors**. Depth is
+breadth-first steps from the room you woke up in, and a portal counts double:
+you have not walked further, but you have been taken further.  shows
+the raw render.
 
 ## Keeping it fast
 

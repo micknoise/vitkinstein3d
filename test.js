@@ -193,51 +193,41 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
       assert(port.space === port.target, 'and in the room that door opens onto (' + port.space + ')');
     }
 
-    // --- everything you see is footage (the tape) ----------------------------
-    const tape = await p.evaluate(async () => {
+    // --- how far in you are, and what it does to you --------------------------
+    // The pass is meant to be present in the first room and much worse a long
+    // way in, and "a long way in" means doors, not metres -- a portal can put
+    // the far side of the house one step away. See PLAN C1.
+    const vision = await p.evaluate(async () => {
       const raf = () => new Promise(r => requestAnimationFrame(() => r()));
-      const gl = VK.renderer.getContext();
-      const before = VK.renderer.info.render.calls;
+      const depths = VK.roomDepths();
+      const start = VK.spaces[Object.keys(VK.spaces)[0]] ? null : null;
+      const vals = Object.keys(VK.spaces).map(k => ({ k, d: depths[k], dose: VK.doseFor(k) }));
+      const reachable = vals.filter(v => v.d <= 90);
+      const near = reachable.filter(v => v.d === 0);
+      const far = reachable.filter(v => v.d >= 3);
+      // it has to actually move when you walk in
       for (let i = 0; i < 3; i++) await raf();
-      // the pass draws the world into a target and the target onto the canvas,
-      // so the canvas is not what the scene was rendered into
       const rt = VK.renderer.getRenderTarget();
-      return { onScreenAfterFrame: rt === null, lost: gl.isContextLost(), drew: VK.renderer.info.render.calls > before };
+      return {
+        rooms: vals.length, reachable: reachable.length,
+        atStart: near.length ? near[0].dose : null,
+        deepest: Math.max(...reachable.map(v => v.dose)),
+        spread: far.length ? Math.min(...far.map(v => v.dose)) - (near.length ? near[0].dose : 0) : null,
+        onScreen: rt === null,
+        lost: VK.renderer.getContext().isContextLost()
+      };
     });
-    // the tape breaks up rarely and briefly -- a permanent shimmer is a filter,
-    // not a fault, and that is the difference this is trying to hold
-    const breakup = await p.evaluate(() => {
-      let on = 0, longest = 0, run = 0, events = 0, was = false;
-      const step = 1 / 240;
-      for (let t = 0; t < 300; t += step) {
-        const b = VK.burstAt(t) > 0.02;
-        if (b) { on += step; run += step; if (!was) events++; }
-        else { longest = Math.max(longest, run); run = 0; }
-        was = b;
-      }
-      return { duty: on / 300, longest: Math.max(longest, run), events };
-    });
-    assert(breakup.duty > 0.002 && breakup.duty < 0.04,
-      'the tape breaks up, and rarely (' + (breakup.duty * 100).toFixed(2) + '% of the time, ' + breakup.events + ' times in five minutes)');
-    assert(breakup.longest < 0.5,
-      'and briefly when it does (' + breakup.longest.toFixed(2) + 's at the longest)');
-
-    // The head-switching bar has to be a band, not the picture. Getting the
-    // edges of one smoothstep the wrong way round made it cover 93% of the
-    // frame, which dragged every scan line sideways at 40Hz all the time and
-    // made the game unplayable. It is a number now so that cannot come back.
-    const bar = await p.evaluate(() => {
-      const seen = [];
-      for (let t = 0; t < 12; t += 0.5) seen.push(VK.barAt(t));
-      return { half: VK.barHalf, min: Math.min(...seen), max: Math.max(...seen), moved: new Set(seen.map(v => v.toFixed(2))).size };
-    });
-    assert(bar.half > 0.002 && bar.half < 0.06,
-      'the rolling bar is a band across the picture, not the picture (' + (bar.half * 200).toFixed(1) + '% of frame height)');
-    assert(bar.moved > 8 && bar.min >= 0 && bar.max < 1,
-      'and it rolls up the frame rather than sitting still');
-
-    assert(tape.lost === false, 'the tape pass does not lose the context');
-    assert(tape.onScreenAfterFrame, 'and hands the canvas back when it has finished with it');
+    assert(vision.lost === false, 'the vision pass does not lose the context');
+    assert(vision.onScreen, 'and hands the canvas back when it has finished with it');
+    assert(vision.atStart !== null && vision.atStart > 0.05 && vision.atStart < 0.35,
+      'it is already there in the room you wake up in (' + (vision.atStart || 0).toFixed(2) + ')');
+    assert(vision.deepest > 0.85,
+      'and as bad as it gets a long way in (' + vision.deepest.toFixed(2) + ')');
+    if (vision.spread !== null)
+      assert(vision.spread > 0.15,
+        'and it is measurably worse three doors from the start (+' + vision.spread.toFixed(2) + ')');
+    assert(vision.reachable === vision.rooms,
+      'every room has a depth, so nowhere is permanently at maximum by accident');
 
     // --- you climb the stairs and arrive on the ground floor (E3) ------------
     const stairs = await p.evaluate(() => {

@@ -256,7 +256,7 @@ function init() {
 
   initPlayer();
   buildPortals();
-  initVideo();
+  initVision();
   initPortalSides();
   buildRoomGraph();
   mergeStatics();
@@ -285,7 +285,7 @@ function init() {
     camera.updateProjectionMatrix();
     renderer.setSize(innerWidth, innerHeight);
     resizePortals();
-    resizeVideo();
+    resizeVision();
   });
 
   const startGame = () => {
@@ -312,8 +312,9 @@ function init() {
     get scene() { return scene; }, get camera() { return camera; },
     get world() { return world; }, get spaces() { return SPACES; },
     MAT, PROPS, doors, PORTALS, Audio,
-    burstAt, barAt,
-    get barHalf() { return BAR_HALF; },
+    get dose() { return dose; },
+    doseFor, roomDepths,
+    get deepest() { return _deepest; },
     get mergeStats() { return mergeStats; },
     get driftCount() { return driftCount; },
     get allLights() { return allLights; },
@@ -691,8 +692,9 @@ function animate() {
   updateRoomVisibility(shownPortals);
   renderPortals(shownPortals);
   updateLightPool(camera.position);
-  // everything you see is footage; see 35-video.js
-  renderVideo(frozenAt !== null ? frozenAt : nowMs * 0.001);
+  // the defect is in the person looking; see 35-vision.js
+  renderVision(frozenAt !== null ? frozenAt : nowMs * 0.001,
+               frozenAt !== null ? 1 : dt, currentSpace);
 }
 
 // If the machine cannot hold the frame, give it fewer pixels rather than a
@@ -716,7 +718,7 @@ function adaptResolution(now) {
   renderer.setPixelRatio(pixelRatio);
   renderer.setSize(innerWidth, innerHeight);
   resizePortals();
-  resizeVideo();
+  resizeVision();
 }
 
 let promptTimer = null;
