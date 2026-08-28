@@ -16367,7 +16367,7 @@ function updateHover() {
 // ?nofx=1 turns it off, which is what the screenshot A/B compares against.
 // ---------------------------------------------------------------------------
 
-let FX_OFF = false;
+let FX_OFF = false, FX_GAIN = 1;
 
 let sceneRT = null, accumRT = null, prevRT = null;
 let fxScene = null, fxCam = null, accumMat = null, finalMat = null;
@@ -16410,6 +16410,7 @@ const FINAL_FRAG = `
   uniform vec2  res;
   uniform float time;
   uniform float dose;        // 0 at the door you came in by, 1 a long way in
+  uniform float gain;        // ?fx=N, so this can be judged on the machine it is played on
   varying vec2 vUv;
 
   float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -16439,12 +16440,18 @@ const FINAL_FRAG = `
       fbm(uv * 7.3 + vec2(-t * 1.6, t * 1.3) + 5.1) - 0.5,
       fbm(uv * 6.9 + vec2(t * 1.4, -t * 1.7) + 17.9) - 0.5);
     // worse further in, and worse away from where you are looking
-    float amp = (0.0016 + 0.0090 * dose) * (0.45 + 1.9 * r2);
+    // Weighted towards the periphery, but with a real floor at the centre. The
+    // first version was 0.45 + 1.9*r2, which put nearly all of it out at the
+    // edges -- fine on a laptop screen at arm's length, where the edges are
+    // most of your visual field, and invisible on a monitor you sit back from
+    // and look at the middle of.
+    float amp = (0.0034 + 0.0092 * dose) * (0.80 + 1.30 * r2) * gain;
     vec2 suv = uv + warp * amp;
 
     // --- the periphery softens and lets go --------------------------------
     // A handful of taps on a ring that opens up towards the edge of vision.
-    float blur = (0.4 + 3.4 * dose) * smoothstep(0.02, 0.30, r2) / res.y;
+    // and it does not start at zero in the middle either
+    float blur = (0.9 + 3.2 * dose) * gain * (0.16 + 0.94 * smoothstep(0.0, 0.26, r2)) / res.y;
     vec3 col = vec3(0.0);
     float wsum = 0.0;
     for (int i = 0; i < 6; i++) {
@@ -16468,18 +16475,18 @@ const FINAL_FRAG = `
     vec2 gp = uv * res * 0.9;
     float g1 = hash(floor(gp) + floor(time * 24.0) * 13.7) - 0.5;
     float g2 = hash(floor(gp * 0.45) + floor(time * 11.0) * 41.3) - 0.5;
-    col += (g1 * 0.62 + g2 * 0.38) * (0.055 + 0.115 * dose);
+    col += (g1 * 0.62 + g2 * 0.38) * (0.090 + 0.130 * dose) * gain;
 
     // --- the room is not quite the colour it was --------------------------
     float lum = dot(col, vec3(0.299, 0.587, 0.114));
     float sway = fbm(uv * 1.6 + vec2(time * 0.07, -time * 0.05)) - 0.5;
-    col = mix(vec3(lum), col, 1.0 + dose * (0.55 + 0.8 * sway));
+    col = mix(vec3(lum), col, 1.0 + gain * (0.16 + dose * (0.55 + 0.8 * sway)));
 
     // --- and it closes in -------------------------------------------------
     // It closes in, but you can still see: at 0.76 with a reach of 0.46 the
     // deep rooms came out as a black rectangle with grain on it, which is not
     // a narrowing field of view, it is a fade to black.
-    float vig = 0.30 + 0.24 * dose;
+    float vig = (0.30 + 0.24 * dose) * mix(1.0, gain, 0.5);
     float reach = mix(1.00, 0.62, dose);
     col *= 1.0 - vig * smoothstep(0.06, reach, r2);
 
@@ -16525,7 +16532,7 @@ function roomDepths() {
   return d;
 }
 
-const DOSE_AT_START = 0.16;      // present from the first room, not absent
+const DOSE_AT_START = 0.30;      // present from the first room, not merely non-zero
 let dose = DOSE_AT_START;
 
 // Scaled to this house rather than to a fixed number of doors: houses come out
@@ -16540,7 +16547,11 @@ function doseFor(spaceKey) {
 }
 
 // eased, so walking through a door does not snap the whole screen
+let _pinned = null;
+function pinDose(v) { _pinned = (v === null || v === undefined) ? null : Math.max(0, Math.min(1, v)); }
+
 function updateDose(spaceKey, dt) {
+  if (_pinned !== null) { dose = _pinned; return dose; }
   const target = doseFor(spaceKey || START.space);
   dose += (target - dose) * Math.min(1, dt * 0.55);
   return dose;
@@ -16555,6 +16566,7 @@ function makeRT(w, h) {
 
 function initVision() {
   FX_OFF = QS.has('nofx');
+  FX_GAIN = QS.has('fx') ? Math.max(0, parseFloat(QS.get('fx')) || 1) : 1;
   if (FX_OFF) return;
   const size = new THREE.Vector2();
   renderer.getDrawingBufferSize(size);
@@ -16574,7 +16586,8 @@ function initVision() {
     uniforms: {
       tex: { value: accumRT.texture },
       res: { value: new THREE.Vector2(size.x, size.y) },
-      time: { value: 0 }, dose: { value: DOSE_AT_START }
+      time: { value: 0 }, dose: { value: DOSE_AT_START },
+      gain: { value: FX_GAIN }
     },
     vertexShader: FX_VERT, fragmentShader: FINAL_FRAG, depthTest: false, depthWrite: false
   });
@@ -16940,7 +16953,7 @@ function init() {
     get world() { return world; }, get spaces() { return SPACES; },
     MAT, PROPS, doors, PORTALS, Audio,
     get dose() { return dose; },
-    doseFor, roomDepths,
+    doseFor, roomDepths, pinDose,
     get deepest() { return _deepest; },
     get mergeStats() { return mergeStats; },
     get driftCount() { return driftCount; },

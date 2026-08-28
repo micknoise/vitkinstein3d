@@ -313,7 +313,7 @@ function init() {
     get world() { return world; }, get spaces() { return SPACES; },
     MAT, PROPS, doors, PORTALS, Audio,
     get dose() { return dose; },
-    doseFor, roomDepths,
+    doseFor, roomDepths, pinDose,
     get deepest() { return _deepest; },
     get mergeStats() { return mergeStats; },
     get driftCount() { return driftCount; },
