@@ -354,6 +354,41 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
       'and roughly how big it is, which is what sets the pitch (' + mats.sized + '/' + mats.total + ')');
     assert(sound.unplaced === 0, 'and your own footsteps are not (' + sound.unplaced + ' pointless panners)');
 
+    // --- the room, and what is in the way of it ------------------------------
+    // A mug dropped in a warehouse and a mug dropped in a box room used to be
+    // the same sound. And a sound made two rooms away used to arrive whole.
+    const room = await p.evaluate(async () => {
+      VK.Audio.start();
+      await new Promise(r => setTimeout(r, 120));
+      const kinds = {};
+      let startKind = VK.Audio.roomKind;
+      for (const k of Object.keys(VK.spaces)) {
+        VK.goSpace(k); VK.tick(2);
+        kinds[VK.Audio.roomKind || 'none'] = (kinds[VK.Audio.roomKind || 'none'] || 0) + 1;
+      }
+      const keys = Object.keys(VK.spaces);
+      VK.goSpace(keys[0]); VK.tick(2);
+      const here = VK.player().space;
+      const nb = (VK.roomGraph[here] || [])[0];
+      const far = keys.find(x => x !== here && x !== nb && (VK.roomGraph[here] || []).indexOf(x) < 0);
+      const at = k => { const s = VK.spaces[k]; return [s.origin[0], 1, s.origin[1]]; };
+      return {
+        startKind, kinds, distinct: Object.keys(kinds).filter(k => k !== 'none').length,
+        none: kinds.none || 0,
+        same: VK.Audio.occlusion(at(here)).cut,
+        near: nb ? VK.Audio.occlusion(at(nb)).cut : null,
+        away: far ? VK.Audio.occlusion(at(far)).cut : null
+      };
+    });
+    assert(room.startKind !== null && room.none === 0,
+      'every room sounds like a room, including the one you wake up in');
+    assert(room.distinct >= 2,
+      'and they do not all sound like the same room (' +
+      Object.entries(room.kinds).map(([k, v]) => k + ' ' + v).join(', ') + ')');
+    if (room.near !== null && room.away !== null)
+      assert(room.same > room.near && room.near > room.away,
+        'a sound loses its top end through a wall (' + room.same + ' / ' + room.near + ' / ' + room.away + 'Hz)');
+
     // --- the house changes behind your back, and only its own things (A1a) ---
     const drift = await p.evaluate(() => {
       const T = VK.THREE;

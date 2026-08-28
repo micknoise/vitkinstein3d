@@ -28,6 +28,11 @@ const Audio = (() => {
     src.connect(lp); lp.connect(toneGain); toneGain.connect(master);
     src.start();
 
+    initRooms();
+    // the room you woke up in is a room too: updateSpace only calls setRoom on a
+    // change, and by the time there is a context to build this in you have
+    // already been standing in one for a while
+    setRoom(currentSpace || START.space);
     scheduleFar();
   }
 
@@ -61,6 +66,106 @@ const Audio = (() => {
   //
   // Each event makes its own panner and lets it go when the sound ends; there
   // are only ever a handful at once.
+  // --- the room itself ----------------------------------------------------
+  //
+  // Everything so far has been objects in a void: a mug dropped in a warehouse
+  // and a mug dropped in a box room made exactly the same sound. What tells you
+  // which one you are in is the tail -- how long it takes the room to stop
+  // repeating what you just did, and how much top it keeps while doing it.
+  //
+  // The impulse responses are synthesised, like everything else here: noise
+  // with an exponential envelope, a one-pole lowpass to take the edge off as it
+  // decays, and a handful of discrete early reflections at the front, which are
+  // what actually carry the size of a room rather than the tail.
+  //
+  // Two convolvers rather than one per kind. Swapping the buffer under a live
+  // convolver clicks, so the idle one is loaded and crossfaded to instead.
+  const ROOMS = {
+    dead: { sec: 0.42, decay: 3.4, damp: 0.34, wet: 0.16, early: 5 },   // carpet, small
+    room: { sec: 1.05, decay: 2.6, damp: 0.55, wet: 0.26, early: 8 },   // plaster and tile
+    hall: { sec: 2.30, decay: 1.9, damp: 0.78, wet: 0.42, early: 14 }   // concrete, big
+  };
+  let revBus = null, convA = null, convB = null, gA = null, gB = null;
+  let liveIsA = true, roomKind = null;
+  const irCache = {};
+
+  function makeIR(k) {
+    if (irCache[k]) return irCache[k];
+    const R = ROOMS[k];
+    const n = Math.max(1, Math.floor(ctx.sampleRate * R.sec));
+    const buf = ctx.createBuffer(2, n, ctx.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = buf.getChannelData(ch);
+      let lp = 0;
+      for (let i = 0; i < n; i++) {
+        const t = i / n;
+        // noise buffers are the one place Math.random is allowed here
+        lp += ((Math.random() * 2 - 1) - lp) * R.damp;
+        d[i] = lp * Math.pow(1 - t, R.decay);
+      }
+      // early reflections: sparse, loud, and slightly different in each ear,
+      // which is most of what makes a room sound like a size
+      for (let e = 0; e < R.early; e++) {
+        const at = Math.floor((0.004 + Math.random() * R.sec * 0.14) * ctx.sampleRate);
+        if (at < n) d[at] += (Math.random() * 2 - 1) * 0.55 * Math.pow(1 - at / n, 1.5);
+      }
+    }
+    irCache[k] = buf;
+    return buf;
+  }
+
+  function initRooms() {
+    revBus = ctx.createGain(); revBus.gain.value = 1;
+    convA = ctx.createConvolver(); convB = ctx.createConvolver();
+    convA.normalize = convB.normalize = true;
+    gA = ctx.createGain(); gB = ctx.createGain();
+    gA.gain.value = 0; gB.gain.value = 0;
+    revBus.connect(convA); convA.connect(gA); gA.connect(master);
+    revBus.connect(convB); convB.connect(gB); gB.connect(master);
+  }
+
+  // which acoustic a room is, from what it is made of and how big it is
+  function kindOf(key) {
+    const sp = SPACES[key];
+    if (!sp) return 'room';
+    const [W, H, D] = sp.size;
+    if (W * H * D > 320) return 'hall';
+    if (sp.floor === 'carpet') return 'dead';
+    if (sp.floor === 'concrete' || sp.ceiling === 'concrete') return 'hall';
+    return 'room';
+  }
+
+  function setRoom(key) {
+    if (!ctx || !revBus) return;
+    const k = kindOf(key);
+    if (k === roomKind) return;
+    roomKind = k;
+    const now = ctx.currentTime;
+    const idle = liveIsA ? convB : convA, ig = liveIsA ? gB : gA, og = liveIsA ? gA : gB;
+    idle.buffer = makeIR(k);
+    ig.gain.cancelScheduledValues(now);
+    og.gain.cancelScheduledValues(now);
+    ig.gain.setValueAtTime(ig.gain.value, now);
+    og.gain.setValueAtTime(og.gain.value, now);
+    ig.gain.linearRampToValueAtTime(ROOMS[k].wet, now + 0.6);
+    og.gain.linearRampToValueAtTime(0, now + 0.6);
+    liveIsA = !liveIsA;
+  }
+
+  // --- how much building is in the way ------------------------------------
+  //
+  // A sound made in the room you are standing in arrives whole. One made
+  // through an open door arrives with its top end gone, and one made two rooms
+  // away is a thud you can barely place. This is the cheapest large cue there
+  // is and the building already knows everything needed to work it out.
+  function occlusion(at) {
+    const here = currentSpace;
+    const there = spaceAt(at[0], at[2]);
+    if (!here || !there || here === there) return { cut: 20000, gain: 1 };
+    const near = (roomGraph[here] || []).indexOf(there) >= 0;
+    return near ? { cut: 2200, gain: 0.62 } : { cut: 700, gain: 0.34 };
+  }
+
   function panner(at) {
     const pn = ctx.createPanner();
     pn.panningModel = 'HRTF';
@@ -73,8 +178,24 @@ const Audio = (() => {
     } else {
       pn.setPosition(at[0], at[1], at[2]);
     }
-    pn.connect(master);
-    return pn;
+    // input -> what is in the way -> where it is -> your ears, with a send to
+    // whatever room you are standing in
+    const occ = occlusion(at);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = occ.cut; lp.Q.value = 0.4;
+    const g = ctx.createGain(); g.gain.value = occ.gain;
+    lp.connect(g); g.connect(pn); pn.connect(master);
+    if (revBus) { const send = ctx.createGain(); send.gain.value = occ.gain; g.connect(send); send.connect(revBus); }
+    return lp;
+  }
+
+  // Unplaced sounds -- your own feet -- still belong in the room, they just do
+  // not come from anywhere in it.
+  function dry() {
+    if (!revBus) return master;
+    const g = ctx.createGain(); g.gain.value = 1;
+    g.connect(master); g.connect(revBus);
+    return g;
   }
 
   // where the ears are, and which way they are pointing
@@ -122,7 +243,7 @@ const Audio = (() => {
 
     const M = MODES[cls] || MODES.wood;
     const hit = Math.min(1, v / 5.5);              // how hard, 0..1
-    const out = at ? panner(at) : master;
+    const out = at ? panner(at) : dry();
 
     // Big things ring low. Size does most of the work and mass trims it, which
     // is why a bucket and a brick of the same size do not sound alike.
@@ -183,7 +304,7 @@ const Audio = (() => {
     g.gain.setValueAtTime(gain, ctx.currentTime);
     g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + dur);
     s.connect(f); f.connect(g);
-    const out = at ? panner(at) : master;
+    const out = at ? panner(at) : dry();
     g.connect(out);
     s.start(); s.stop(ctx.currentTime + dur + 0.02);
   }
@@ -215,7 +336,9 @@ const Audio = (() => {
       o.connect(g); g.connect(master); o.start(); o.stop(ctx.currentTime + 0.85);
       burst(2400, 0.25, 0.03, 'highpass', 0.7);
     },
-    setTone: (v) => { if (toneGain) toneGain.gain.value = v; }
+    setTone: (v) => { if (toneGain) toneGain.gain.value = v; },
+    setRoom, occlusion,
+    get roomKind() { return roomKind; }
   };
 })();
 
@@ -452,6 +575,15 @@ function whichSpace() {
   return null;
 }
 
+// whichSpace() answers for the player. This answers for anything -- a mug
+// bouncing two rooms away needs to know which room it is bouncing in before we
+// can work out how much wall is between it and your ears.
+function spaceAt(x, z) {
+  for (const b of spaceBounds)
+    if (x > b.min[0] && x < b.max[0] && z > b.min[1] && z < b.max[1]) return b.key;
+  return null;
+}
+
 function updateSpace() {
   const sp = whichSpace();
   if (!sp) return;
@@ -462,6 +594,7 @@ function updateSpace() {
   const label = SPACES[sp.key].label;
   if (label && label !== '—' && prompt) showPrompt(label, 2600);
   Audio.setTone(SPACES[sp.key]._type === 'warehouse' ? 0.13 : 0.09);
+  Audio.setRoom(sp.key);
 }
 
 // Fill the fixed light pool from wherever the camera is (see 20-build.js for
