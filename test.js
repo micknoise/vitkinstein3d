@@ -321,10 +321,10 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
       try {
         VK.Audio.start();
         const before = panners;
-        VK.Audio.creak(true, [1, 1, 5]);          // a door, somewhere
+        VK.Audio.impact(3, 1.0, [1, 1, 5], 'ceramic', 0.12);   // a mug, somewhere
         const placed = panners - before;
-        VK.Audio.step();                          // your own feet
-        VK.Audio.creak(true);                     // no place given
+        VK.Audio.step('tile');                    // your own feet
+        VK.Audio.through();                       // the fold, which is everywhere
         const unplaced = panners - before - placed;
         VK.Audio.listen(new T.Vector3(1, 1.2, 2), new T.Vector3(0, 0, -1), new T.Vector3(0, 1, 0));
         return { placed, unplaced, listened: true };
@@ -332,7 +332,26 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
         AC.prototype.createPanner = orig;
       }
     });
-    assert(sound.placed === 1, 'a door heard from across the room is played from where it is');
+    assert(sound.placed === 1, 'a mug dropped across the room is played from where it is');
+
+    // and it has to know what it dropped. A mug and a length of pipe are the
+    // same event to the physics and completely different sounds.
+    const mats = await p.evaluate(() => {
+      const seen = {};
+      let sized = 0, total = 0;
+      for (const b of VK.world.bodies) {
+        if (!(b.mass > 0) || !b.threeObj) continue;
+        total++;
+        seen[b.sndClass || 'none'] = (seen[b.sndClass || 'none'] || 0) + 1;
+        if (b.sndSize > 0.01 && b.sndSize < 6) sized++;
+      }
+      return { seen, sized, total, kinds: Object.keys(seen).length };
+    });
+    assert(!mats.seen.none && mats.kinds >= 3,
+      'everything you can pick up knows what it is made of (' +
+      Object.entries(mats.seen).map(([k, v]) => k + ' ' + v).join(', ') + ')');
+    assert(mats.sized === mats.total,
+      'and roughly how big it is, which is what sets the pitch (' + mats.sized + '/' + mats.total + ')');
     assert(sound.unplaced === 0, 'and your own footsteps are not (' + sound.unplaced + ' pointless panners)');
 
     // --- the house changes behind your back, and only its own things (A1a) ---

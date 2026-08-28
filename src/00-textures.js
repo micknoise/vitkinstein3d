@@ -485,6 +485,11 @@ function buildMaterials(rng) {
   outTex.colorSpace = THREE.SRGBColorSpace;
   MAT.nothing = new THREE.MeshBasicMaterial({ map: outTex, side: THREE.BackSide });
 
+  // Every material carries its own name from here on. It is what lets a mug
+  // sound like a mug: the sound of a thing being dropped is decided by what it
+  // is made of, and the only place that is written down is here.
+  for (const k in MAT) if (MAT[k] && !MAT[k].name) MAT[k].name = k;
+
   // grime: several variants so neighbouring walls don't share one
   DECAL.grime = [];
   for (let i = 0; i < 4; i++) {

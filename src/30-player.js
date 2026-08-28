@@ -198,7 +198,6 @@ function tryDoor() {
   const d = h.object.userData.door;
   if (!d) return;
   d.open = !d.open;
-  Audio.creak(d.open, [d.pivot.position.x, 1.0, d.pivot.position.z]);
 }
 
 function updateDoors(dt) {
@@ -268,7 +267,10 @@ function updatePlayer(dt) {
 
   // footsteps
   stepAccum += hspeed * dt;
-  if (grounded && stepAccum > 0.78) { stepAccum = 0; Audio.step(); }
+  if (grounded && stepAccum > 0.78) {
+    stepAccum = 0;
+    Audio.step(SPACES[currentSpace] ? SPACES[currentSpace].floor : null);
+  }
 }
 
 // What the crosshair is currently over. This is a raycast, and the answer is a

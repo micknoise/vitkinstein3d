@@ -100,9 +100,33 @@ function scaledMat(name, u, v) {
 const rnd = (a, b) => rr(a, b);
 const pick = arr => rpick(arr);
 
+// What a thing sounds like when it is dropped. Grouped by how they ring rather
+// than by what they look like: rust rings like metal, card lands like cloth.
+const SOUND_OF = {
+  metal: 'metal', tube: 'metal', rust: 'metal',
+  glass: 'glass', bulb: 'glass',
+  wood: 'wood', woodLight: 'wood',
+  card: 'soft', paper: 'soft', fabric: 'soft', shade: 'soft', plastic: 'soft',
+  plaster: 'stone', cream: 'stone', concrete: 'stone', concreteWall: 'stone',
+  brick: 'stone', tile: 'ceramic', red: 'ceramic'
+};
+function soundClass(obj3d) {
+  let m = obj3d.material;
+  if (!m && obj3d.children.length) m = obj3d.children[0].material;
+  const n = m && m.name;
+  return SOUND_OF[n] || 'wood';
+}
+
 function register(obj3d, body, mass) {
   obj3d.userData.body = body;
   body.threeObj = obj3d;
+  if (mass > 0) {
+    body.sndClass = soundClass(obj3d);
+    // the longest side, which is what sets the pitch of the ring
+    const sh = body.shapes[0];
+    body.sndSize = sh && sh.halfExtents ? 2 * Math.max(sh.halfExtents.x, sh.halfExtents.y, sh.halfExtents.z)
+                 : (sh && sh.radiusTop !== undefined ? Math.max(sh.height, sh.radiusTop * 2) : 0.3);
+  }
   if (mass > 0) { dynamicPairs.push({ mesh: obj3d, body }); grabbables.push(obj3d); obj3d.userData.grabbable = true; }
 }
 

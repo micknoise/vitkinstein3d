@@ -3,7 +3,8 @@
 // ---------------------------------------------------------------------------
 
 const Audio = (() => {
-  let ctx = null, master = null, toneGain = null, lastImpact = 0;
+  let ctx = null, master = null, toneGain = null, lastImpact = -1;   // -1, so the first
+                                                                    // impact is not swallowed
   const earsAt = { x: 0, y: 1.2, z: 0 };      // last known listener position
 
   function noiseBuffer(sec) {
@@ -26,12 +27,6 @@ const Audio = (() => {
     toneGain = ctx.createGain(); toneGain.gain.value = 0.09;
     src.connect(lp); lp.connect(toneGain); toneGain.connect(master);
     src.start();
-
-    const hum = ctx.createOscillator(); hum.type = 'sine'; hum.frequency.value = 50;
-    const hum2 = ctx.createOscillator(); hum2.type = 'sine'; hum2.frequency.value = 150;
-    const hg = ctx.createGain(); hg.gain.value = 0.012;
-    hum.connect(hg); hum2.connect(hg); hg.connect(master);
-    hum.start(); hum2.start();
 
     scheduleFar();
   }
@@ -59,7 +54,7 @@ const Audio = (() => {
   }
 
   // C2. A sound that happens somewhere should come from there. The room tone
-  // and the mains hum stay monophonic on purpose -- they are the room itself,
+  // stays monophonic on purpose -- it is the room itself,
   // not events in it, and giving them a position would put the room in a
   // corner. Footsteps stay monophonic too: they happen at the listener, so a
   // panner would do nothing but cost a node.
@@ -97,6 +92,89 @@ const Audio = (() => {
     }
   }
 
+  // --- what a thing sounds like when it hits something ---------------------
+  //
+  // Not a filtered noise burst. A real impact is a very short excitation --
+  // the two surfaces meeting -- ringing the modes of whatever was hit, and it
+  // is the modes that tell you what the object is made of and how big it is.
+  // So: a two millisecond click through a bank of high-Q bandpass filters
+  // tuned to a few of those modes, each with its own decay.
+  //
+  // The ratios are the useful part. Wood is dull and dies immediately, metal
+  // rings for a second and its partials are nowhere near harmonic, glass is
+  // bright and clean, stone is a thud with almost no ring at all.
+  const MODES = {
+    wood:    { r: [1, 2.42, 3.68],          d: [0.13, 0.08, 0.05], q: 11, bright: 0.55, thump: 0.55 },
+    metal:   { r: [1, 2.76, 5.40, 8.93],    d: [1.10, 0.85, 0.60, 0.40], q: 34, bright: 1.00, thump: 0.30 },
+    glass:   { r: [1, 2.32, 4.25],          d: [0.55, 0.40, 0.28], q: 28, bright: 1.00, thump: 0.20 },
+    ceramic: { r: [1, 2.09, 3.41],          d: [0.34, 0.24, 0.16], q: 20, bright: 0.85, thump: 0.35 },
+    stone:   { r: [1, 1.78, 2.61],          d: [0.09, 0.06, 0.04], q: 7,  bright: 0.40, thump: 0.80 },
+    soft:    { r: [1, 1.90],                d: [0.05, 0.035], q: 4,  bright: 0.20, thump: 0.70 }
+  };
+
+  let voices = 0;
+  function impact(v, mass, at, cls, size) {
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    if (now - lastImpact < 0.022) return;
+    if (voices > 10) return;                       // a shelf collapsing is not a chord
+    lastImpact = now;
+
+    const M = MODES[cls] || MODES.wood;
+    const hit = Math.min(1, v / 5.5);              // how hard, 0..1
+    const out = at ? panner(at) : master;
+
+    // Big things ring low. Size does most of the work and mass trims it, which
+    // is why a bucket and a brick of the same size do not sound alike.
+    const f0 = Math.max(70, Math.min(2200,
+      95 / Math.max(0.06, size || 0.3) * (1 / Math.sqrt(Math.max(0.15, mass))) * 1.6));
+
+    // the excitation: a couple of milliseconds of noise, brighter the harder it
+    // was hit, because a hard hit puts energy into the higher modes
+    const ex = ctx.createBufferSource(); ex.buffer = noiseBuffer(0.05);
+    const hp = ctx.createBiquadFilter(); hp.type = 'highpass';
+    hp.frequency.value = 200 + 2600 * hit * M.bright;
+    const eg = ctx.createGain();
+    eg.gain.setValueAtTime(0.9, now);
+    eg.gain.exponentialRampToValueAtTime(0.0001, now + 0.0035 + 0.004 * (1 - hit));
+    ex.connect(hp); hp.connect(eg);
+
+    let longest = 0;
+    for (let i = 0; i < M.r.length; i++) {
+      // a few per cent off every time, so the same mug twice is not the same
+      const f = f0 * M.r[i] * (0.97 + Math.random() * 0.06);
+      if (f > 11000) continue;
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = M.q * (0.8 + Math.random() * 0.4);
+      const d = M.d[i] * (0.85 + Math.random() * 0.3) * (0.6 + 0.4 * hit);
+      const g = ctx.createGain();
+      const amp = Math.min(0.5, 0.42 * hit) / (1 + i * 1.15);
+      g.gain.setValueAtTime(0.0001, now);
+      g.gain.exponentialRampToValueAtTime(Math.max(0.0002, amp), now + 0.004);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + d);
+      eg.connect(bp); bp.connect(g); g.connect(out);
+      longest = Math.max(longest, d);
+    }
+
+    // and the thud of the two things actually meeting, which is most of what
+    // you hear from anything heavy or soft
+    const th = ctx.createOscillator(); th.type = 'sine';
+    const tf = Math.max(38, Math.min(190, f0 * 0.22));
+    th.frequency.setValueAtTime(tf * 1.7, now);
+    th.frequency.exponentialRampToValueAtTime(tf, now + 0.05);
+    const tg = ctx.createGain();
+    tg.gain.setValueAtTime(0.0001, now);
+    tg.gain.exponentialRampToValueAtTime(Math.max(0.0002, 0.30 * hit * M.thump * Math.min(1.6, 0.5 + mass * 0.35)), now + 0.006);
+    tg.gain.exponentialRampToValueAtTime(0.0001, now + 0.055 + 0.10 * M.thump);
+    th.connect(tg); tg.connect(out);
+
+    const stop = now + Math.max(longest, 0.18) + 0.05;
+    ex.start(now); ex.stop(now + 0.06);
+    th.start(now); th.stop(stop);
+    voices++;
+    setTimeout(() => { voices--; }, (stop - now) * 1000 + 40);
+  }
+
   function burst(freq, dur, gain, type, q, at) {
     if (!ctx) return;
     const s = ctx.createBufferSource(); s.buffer = noiseBuffer(0.4);
@@ -112,16 +190,17 @@ const Audio = (() => {
 
   return {
     start,
-    step: () => burst(380 + Math.random() * 180, 0.11, 0.055, 'bandpass', 0.9),
-    blip: (f, d, g) => burst(f, d, g),
-    impact: (v, mass, at) => {
-      if (!ctx) return;
-      const now = ctx.currentTime;
-      if (now - lastImpact < 0.03) return;
-      lastImpact = now;
-      const g = Math.min(0.35, v * 0.045);
-      burst(160 + 900 / Math.max(0.3, mass), 0.07 + Math.min(0.2, mass * 0.02), g, 'bandpass', 1.6, at);
+    // A footstep on carpet is not a footstep on concrete, and the room already
+    // knows which it is standing on.
+    step: (floor) => {
+      const f = floor === 'carpet' ? { f: 240, d: 0.075, g: 0.030, q: 0.7 }
+              : floor === 'tile'   ? { f: 640, d: 0.085, g: 0.055, q: 1.5 }
+              : floor === 'concrete' ? { f: 500, d: 0.10, g: 0.050, q: 1.1 }
+              : { f: 380, d: 0.11, g: 0.048, q: 0.9 };
+      burst(f.f + Math.random() * f.f * 0.4, f.d, f.g, 'bandpass', f.q);
     },
+    blip: (f, d, g) => burst(f, d, g),
+    impact,
     listen,
     // the sound of the room changing behind you
     through: () => {
@@ -135,20 +214,6 @@ const Audio = (() => {
       g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.8);
       o.connect(g); g.connect(master); o.start(); o.stop(ctx.currentTime + 0.85);
       burst(2400, 0.25, 0.03, 'highpass', 0.7);
-    },
-    creak: (opening, at) => {
-      if (!ctx) return;
-      const o = ctx.createOscillator(); o.type = 'sawtooth';
-      const f0 = opening ? 210 : 260;
-      o.frequency.setValueAtTime(f0, ctx.currentTime);
-      o.frequency.linearRampToValueAtTime(f0 * (opening ? 0.55 : 1.4), ctx.currentTime + 0.85);
-      const g = ctx.createGain();
-      g.gain.setValueAtTime(0.0001, ctx.currentTime);
-      g.gain.linearRampToValueAtTime(0.02, ctx.currentTime + 0.15);
-      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.9);
-      const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 900; bp.Q.value = 3;
-      o.connect(bp); bp.connect(g); g.connect(at ? panner(at) : master);
-      o.start(); o.stop(ctx.currentTime + 0.95);
     },
     setTone: (v) => { if (toneGain) toneGain.gain.value = v; }
   };
@@ -266,7 +331,9 @@ function init() {
   for (const { body } of dynamicPairs) {
     body.addEventListener('collide', e => {
       const v = e.contact.getImpactVelocityAlongNormal();
-      if (Math.abs(v) > 1.2) Audio.impact(Math.abs(v), body.mass, [body.position.x, body.position.y, body.position.z]);
+      if (Math.abs(v) > 1.2)
+        Audio.impact(Math.abs(v), body.mass, [body.position.x, body.position.y, body.position.z],
+                     body.sndClass, body.sndSize);
     });
   }
 
