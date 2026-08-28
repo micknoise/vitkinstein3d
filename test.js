@@ -222,6 +222,20 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
     assert(breakup.longest < 0.5,
       'and briefly when it does (' + breakup.longest.toFixed(2) + 's at the longest)');
 
+    // The head-switching bar has to be a band, not the picture. Getting the
+    // edges of one smoothstep the wrong way round made it cover 93% of the
+    // frame, which dragged every scan line sideways at 40Hz all the time and
+    // made the game unplayable. It is a number now so that cannot come back.
+    const bar = await p.evaluate(() => {
+      const seen = [];
+      for (let t = 0; t < 12; t += 0.5) seen.push(VK.barAt(t));
+      return { half: VK.barHalf, min: Math.min(...seen), max: Math.max(...seen), moved: new Set(seen.map(v => v.toFixed(2))).size };
+    });
+    assert(bar.half > 0.002 && bar.half < 0.06,
+      'the rolling bar is a band across the picture, not the picture (' + (bar.half * 200).toFixed(1) + '% of frame height)');
+    assert(bar.moved > 8 && bar.min >= 0 && bar.max < 1,
+      'and it rolls up the frame rather than sitting still');
+
     assert(tape.lost === false, 'the tape pass does not lose the context');
     assert(tape.onScreenAfterFrame, 'and hands the canvas back when it has finished with it');
 

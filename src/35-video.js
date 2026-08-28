@@ -36,6 +36,8 @@ const VIDEO_FRAG = `
   uniform float time;
   uniform float exposure;
   uniform float burstAmt;   // worked out on the CPU, see burstAt()
+  uniform float barPos;     // where the head-switching bar is, 0..1 down the frame
+  uniform float barHalf;    // and how deep it is, as a fraction of frame height
   varying vec2 vUv;
 
   // ACES, the same fit the portals use, because this pass is now the only
@@ -79,14 +81,21 @@ const VIDEO_FRAG = `
     // frame, dragging the picture sideways as it passes. Every few seconds,
     // not every frame, or it stops reading as a fault and starts reading as a
     // pattern.
-    float roll = fract(time * 0.13);
-    float bar = smoothstep(0.055, 0.0, abs(fract(lens.y + 0.5 - roll) - 0.5) - 0.44);
+    // Cyclic distance from the bar, 0 on it and 0.5 at the far side of the
+    // frame. Written this way round on purpose: the first version was a
+    // smoothstep with its edges swapped, so it came out as 1 across almost the
+    // whole picture and 0 only in the band -- which dragged every scan line
+    // sideways at 40Hz, all the time, and made the game unplayable. Its
+    // position and its depth come in as numbers so that they can be checked,
+    // rather than being a shape somebody has to squint at.
+    float dy = abs(fract(lens.y + 0.5 - barPos + 0.5) - 0.5);
+    float bar = 1.0 - smoothstep(0.0, barHalf, dy);
     float tear = bar * (noise1(time * 40.0) - 0.5) * 0.045;
 
-    // The tape never runs at quite the right speed, but only just: a picture
-    // that is always moving reads as a camera being shaken, and this is meant
-    // to read as a tape that is mostly fine.
-    float wob = sin((lens.y + 0.5) * 90.0 + time * 5.0) * 0.00035;
+    // Nothing moves the picture sideways except the bar and a burst. A tape
+    // that is always drifting reads as a camera being shaken, and you cannot
+    // aim at anything through it.
+    float wob = 0.0;
 
     // Interference proper. Rare, and when it comes it is violent and quick --
     // a slow selector decides *whether*, a very fast one decides *what*, so a
@@ -150,6 +159,12 @@ const VIDEO_FRAG = `
 // stop that, with nothing at all for minutes. Here it is simply stated: a
 // window every few seconds, most of them empty, and when one is not empty it
 // lasts a couple of hundred milliseconds and is violent.
+// The head-switching bar: a couple of scan lines deep, rolling up the frame
+// about once every eight seconds.
+const BAR_HALF = 0.028;           // fraction of the frame height, each side
+const BAR_SPEED = 0.13;           // frames per second, so ~7.7s to cross
+function barAt(t) { const p = (t * BAR_SPEED) % 1; return p < 0 ? p + 1 : p; }
+
 const BURST_EVERY = 6.5;          // seconds between chances of one
 const BURST_ODDS = 0.45;          // how many of those chances come to anything
 function bhash(n) { const s = Math.sin(n * 12.9898 + 78.233) * 43758.5453; return s - Math.floor(s); }
@@ -181,7 +196,9 @@ function initVideo() {
       // the tape costs about a third of a stop between the scan lines, the
       // vignette and the desaturation; give it back before any of that happens
       exposure: { value: renderer.toneMappingExposure * 1.28 },
-      burstAmt: { value: 0 }
+      burstAmt: { value: 0 },
+      barPos: { value: 0 },
+      barHalf: { value: BAR_HALF }
     },
     vertexShader: VIDEO_VERT, fragmentShader: VIDEO_FRAG,
     depthTest: false, depthWrite: false
@@ -213,6 +230,7 @@ function renderVideo(t) {
   if (!videoRT) { renderer.render(scene, camera); return; }
   videoMat.uniforms.time.value = t;
   videoMat.uniforms.burstAmt.value = burstAt(t);
+  videoMat.uniforms.barPos.value = barAt(t);
   renderer.setRenderTarget(videoRT);
   renderer.clear();
   renderer.render(scene, camera);
