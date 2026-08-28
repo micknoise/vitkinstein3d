@@ -429,13 +429,61 @@ function buildMaterials(rng) {
 
   // A window. The glass is barely there -- enough of a sheen across it to read
   // as a pane and to catch a lamp, not enough to hide what is not outside.
+  // A shaft of light, and the patch it throws on the floor. Soft at the edges
+  // and fading along its length, because a beam with a hard edge is a wedge of
+  // plastic. Additive, so it only ever adds light to what is behind it.
+  const beam = cnv(64); {
+    const x = ctx2d(beam);
+    for (let i = 0; i < 64; i++) {
+      const across = Math.abs(i / 63 - 0.5) * 2;
+      const a = Math.pow(1 - across, 1.7);
+      const g = x.createLinearGradient(0, 0, 0, 64);
+      g.addColorStop(0, `rgba(255,252,240,${(a * 0.85).toFixed(3)})`);
+      g.addColorStop(0.55, `rgba(255,250,235,${(a * 0.38).toFixed(3)})`);
+      g.addColorStop(1, `rgba(255,248,230,${(a * 0.12).toFixed(3)})`);
+      x.fillStyle = g; x.fillRect(i, 0, 1, 64);
+    }
+  }
+  const pool = cnv(128); {
+    const x = ctx2d(pool);
+    const g = x.createRadialGradient(64, 64, 4, 64, 64, 62);
+    g.addColorStop(0, 'rgba(255,251,236,0.85)');
+    g.addColorStop(0.45, 'rgba(255,248,230,0.4)');
+    g.addColorStop(1, 'rgba(255,246,225,0)');
+    x.fillStyle = g; x.fillRect(0, 0, 128, 128);
+  }
+  const beamTex = new THREE.CanvasTexture(beam), poolTex = new THREE.CanvasTexture(pool);
+  beamTex.colorSpace = THREE.SRGBColorSpace; poolTex.colorSpace = THREE.SRGBColorSpace;
+  MAT.shaft = new THREE.MeshBasicMaterial({
+    map: beamTex, transparent: true, opacity: 0.34, blending: THREE.AdditiveBlending,
+    depthWrite: false, side: THREE.DoubleSide, fog: true
+  });
+  MAT.shaftPool = new THREE.MeshBasicMaterial({
+    map: poolTex, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending,
+    depthWrite: false, fog: true
+  });
+
   MAT.glass = new THREE.MeshStandardMaterial({
     color: 0x8fa2ab, transparent: true, opacity: 0.13,
     roughness: 0.06, metalness: 0.1, depthWrite: false, side: THREE.DoubleSide
   });
   // and what is not outside. Unlit, and the same colour as the fog it sits in,
   // so it has no surface to read as a surface: the house simply stops.
-  MAT.nothing = new THREE.MeshBasicMaterial({ color: 0x0a0a0e, side: THREE.BackSide });   // exactly the fog
+  // Outside is still nothing, but it is not nothing *dark* -- a shaft of daylight
+  // coming out of a black hole reads as a fault. It goes pale a long way up, the
+  // way the top of a light well does, so the light has somewhere to have come
+  // from and there is still not one thing to look at.
+  const out = cnv(32); {
+    const x = ctx2d(out);
+    const g = x.createLinearGradient(0, 0, 0, 32);
+    g.addColorStop(0, '#5e6a78');
+    g.addColorStop(0.42, '#2b323c');
+    g.addColorStop(1, '#0a0b0e');
+    x.fillStyle = g; x.fillRect(0, 0, 32, 32);
+  }
+  const outTex = new THREE.CanvasTexture(out);
+  outTex.colorSpace = THREE.SRGBColorSpace;
+  MAT.nothing = new THREE.MeshBasicMaterial({ map: outTex, side: THREE.BackSide });
 
   // grime: several variants so neighbouring walls don't share one
   DECAL.grime = [];

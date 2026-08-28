@@ -114,7 +114,8 @@ rendering, `VK.openAll()` opens every door, `VK.spaces` is the plan.
 
 Every space is an interior except for one. Somewhere in each house there is a window, and outside it
 there is nothing — no ground, no sky, nothing to judge a distance against. The house stops at the
-glass.
+glass. Daylight comes through it anyway, in a shaft down onto the floor, and nothing out there
+accounts for it.
 
 ## Keeping it fast
 

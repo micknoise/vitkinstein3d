@@ -295,6 +295,78 @@ function buildWindow(def, side, h) {
   box.userData.noRay = true;          // you cannot look at nothing, or take it
   box.castShadow = false; box.receiveShadow = false;
   attach(box);
+
+  buildShaft(def, side, h, cx, cz, face);
+}
+
+// The light that comes through it.
+//
+// A window you cannot see out of is a boarded window. A window with daylight
+// coming through it is a way out that you have not found yet, and that is the
+// whole point of putting one in a building nobody can leave. Nothing outside
+// accounts for this light, which is the idea.
+//
+// Drawn rather than lit: a tapered additive beam from the opening down to a
+// patch on the floor, plus one cold entry in the light pool so the wall and
+// floor around it actually brighten. A spot light would light it properly and
+// would also blow the pool budget the whole engine is built around.
+function buildShaft(def, side, h, cx, cz, face) {
+  const y0 = h.sill || 0;
+  const nx = face.n[0], nz = face.n[2];        // into the room
+  const ux = -nz, uz = nx;                     // along the wall
+  const hw = h.w / 2 - 0.05;
+  const reach = 1.5 + (h.h - y0) * 0.9;        // how far in the light lands
+  const spread = 1.22;
+
+  // the opening, and the patch of floor it falls on
+  const wy0 = y0 + 0.04, wy1 = h.h - 0.04;
+  const fx = cx + nx * reach, fz = cz + nz * reach;
+  const fw = hw * spread, fd = (wy1 - wy0) * 0.62;
+
+  const P = (x, y, z) => [x, y, z];
+  const wTL = P(cx - ux * hw, wy1, cz - uz * hw), wTR = P(cx + ux * hw, wy1, cz + uz * hw);
+  const wBL = P(cx - ux * hw, wy0, cz - uz * hw), wBR = P(cx + ux * hw, wy0, cz + uz * hw);
+  // the top of the window throws furthest into the room
+  const fFL = P(fx - ux * fw + nx * fd, 0.015, fz - uz * fw + nz * fd);
+  const fFR = P(fx + ux * fw + nx * fd, 0.015, fz + uz * fw + nz * fd);
+  const fNL = P(fx - ux * fw - nx * fd, 0.015, fz - uz * fw - nz * fd);
+  const fNR = P(fx + ux * fw - nx * fd, 0.015, fz + uz * fw - nz * fd);
+
+  // Two quads crossed through the axis of the beam rather than a box of four.
+  // A box shows you its edges: the side panels sample the bright middle of the
+  // gradient and read as two hard streaks with nothing between them. Crossed
+  // quads read as a volume from wherever you stand, which is what a shaft of
+  // light through dust actually looks like.
+  const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
+  const pos = [], uv = [];
+  const quad = (a, b, c, d) => {              // a,b at the window; c,d on the floor
+    pos.push(...a, ...b, ...c, ...a, ...c, ...d);
+    uv.push(0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1);
+  };
+  quad(mid(wTL, wBL), mid(wTR, wBR), mid(fFR, fNR), mid(fFL, fNL));   // across its width
+  quad(wTL, wBL, fNL === fFL ? fNL : mid(fNL, fNR), mid(fFL, fFR));   // and through its depth
+  quad(mid(wTL, wTR), mid(wBL, wBR), mid(fNL, fNR), mid(fFL, fFR));
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.computeVertexNormals();
+  const beam = new THREE.Mesh(geo, MAT.shaft);
+  beam.userData.noRay = true;
+  attach(beam);
+
+  // where it lands
+  const p = new THREE.Mesh(new THREE.PlaneGeometry(fw * 2.5, fd * 2.9), MAT.shaftPool);
+  p.rotation.x = -Math.PI / 2;
+  p.position.set(fx, 0.012, fz);
+  p.userData.noRay = true;
+  attach(p);
+
+  // and one cold light so the room around it is actually brighter, which the
+  // pool handles like any other -- see addLight in this file
+  const lp = [cx + nx * 0.5, (wy0 + wy1) / 2, cz + nz * 0.5];
+  const l = addLight(lp, 0xbcd2e8, 3.4, 7.5, 2);
+  l.base = 3.4;
 }
 
 // Line every opening. Without a lining the soffit is a downward-facing face no

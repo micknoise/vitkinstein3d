@@ -86,6 +86,7 @@ Each requirement has an acceptance test an operator can run by hand.
 | **F15c** | A portal opening never shows a view it did not just render. From behind its own plane, or beyond the two-face budget, it shows the room rather than a stale image. | Walk through, turn round, and back up into the doorway. |
 | **F15d** | An object is drawn in the room it is in, not the room it was built in. Objects left in other rooms as markers are there when you return. | Leave something in three rooms, walk a loop, and come back. |
 | **F14a** | One window per house, and outside it is nothing — no ground, no sky, no far wall. The house stops at the glass. You cannot climb out or throw anything out. | Find it. Look out. Put your face to the glass and move. |
+| **F14b** | Daylight comes through it: a shaft down to a lit patch of floor, and the room around it is measurably brighter. Nothing outside accounts for the light. | Stand in it. Put something down in the patch. |
 | **F15e** | One passage in the house returns to itself: its two ends are linked to each other, so walking down it brings you back to where you started, past the same fittings again. Looking down it, you see the corridor itself receding. | Find the corridor with a doorway at both ends and no way out at either. Put a mug halfway along and walk. |
 
 ### 3.3 Movement and body

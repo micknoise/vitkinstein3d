@@ -29,7 +29,9 @@ const BUDGET = {
   // before. Draw calls per room are unaffected -- a fitting is two triangles.
   meshes: 720,           // worst measured 648
   geometries: 720,       // worst measured 639
-  programs: 20           // measured 16 everywhere
+  // E2 brought four materials of its own -- the glass, the nothing outside it,
+  // the shaft of light and the patch it throws -- and each is a program.
+  programs: 26           // worst measured 22; was 16 before the window
 };
 const breaches = [];
 
