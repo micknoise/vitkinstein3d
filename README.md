@@ -1,6 +1,6 @@
 # Wittgenstein 3D
 
-**[Play it →](https://micknoise.github.io/vitkinstein3d/)**
+**[Play it →](https://micknoise.github.io/wittgenstein3d/)**
 
 A first-person exploration demo. You are somewhere domestic and worn — wallpaper with damp coming
 through it, a lamp doing most of the work, mugs somebody left on a table. Behind one of the doors is
