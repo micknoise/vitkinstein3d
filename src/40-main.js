@@ -28,11 +28,7 @@ const Audio = (() => {
     src.connect(lp); lp.connect(toneGain); toneGain.connect(master);
     src.start();
 
-    initRooms();
-    // the room you woke up in is a room too: updateSpace only calls setRoom on a
-    // change, and by the time there is a context to build this in you have
-    // already been standing in one for a while
-    setRoom(currentSpace || START.space);
+    renderSFX();
     scheduleFar();
   }
 
@@ -66,98 +62,12 @@ const Audio = (() => {
   //
   // Each event makes its own panner and lets it go when the sound ends; there
   // are only ever a handful at once.
-  // --- the room itself ----------------------------------------------------
-  //
-  // Everything so far has been objects in a void: a mug dropped in a warehouse
-  // and a mug dropped in a box room made exactly the same sound. What tells you
-  // which one you are in is the tail -- how long it takes the room to stop
-  // repeating what you just did, and how much top it keeps while doing it.
-  //
-  // The impulse responses are synthesised, like everything else here: noise
-  // with an exponential envelope, a one-pole lowpass to take the edge off as it
-  // decays, and a handful of discrete early reflections at the front, which are
-  // what actually carry the size of a room rather than the tail.
-  //
-  // Two convolvers rather than one per kind. Swapping the buffer under a live
-  // convolver clicks, so the idle one is loaded and crossfaded to instead.
-  const ROOMS = {
-    dead: { sec: 0.42, decay: 3.4, damp: 0.34, wet: 0.16, early: 5 },   // carpet, small
-    room: { sec: 1.05, decay: 2.6, damp: 0.55, wet: 0.26, early: 8 },   // plaster and tile
-    hall: { sec: 2.30, decay: 1.9, damp: 0.78, wet: 0.42, early: 14 }   // concrete, big
-  };
-  let revBus = null, convA = null, convB = null, gA = null, gB = null;
-  let liveIsA = true, roomKind = null;
-  const irCache = {};
-
-  function makeIR(k) {
-    if (irCache[k]) return irCache[k];
-    const R = ROOMS[k];
-    const n = Math.max(1, Math.floor(ctx.sampleRate * R.sec));
-    const buf = ctx.createBuffer(2, n, ctx.sampleRate);
-    for (let ch = 0; ch < 2; ch++) {
-      const d = buf.getChannelData(ch);
-      let lp = 0;
-      for (let i = 0; i < n; i++) {
-        const t = i / n;
-        // noise buffers are the one place Math.random is allowed here
-        lp += ((Math.random() * 2 - 1) - lp) * R.damp;
-        d[i] = lp * Math.pow(1 - t, R.decay);
-      }
-      // early reflections: sparse, loud, and slightly different in each ear,
-      // which is most of what makes a room sound like a size
-      for (let e = 0; e < R.early; e++) {
-        const at = Math.floor((0.004 + Math.random() * R.sec * 0.14) * ctx.sampleRate);
-        if (at < n) d[at] += (Math.random() * 2 - 1) * 0.55 * Math.pow(1 - at / n, 1.5);
-      }
-    }
-    irCache[k] = buf;
-    return buf;
-  }
-
-  function initRooms() {
-    revBus = ctx.createGain(); revBus.gain.value = 1;
-    convA = ctx.createConvolver(); convB = ctx.createConvolver();
-    convA.normalize = convB.normalize = true;
-    gA = ctx.createGain(); gB = ctx.createGain();
-    gA.gain.value = 0; gB.gain.value = 0;
-    revBus.connect(convA); convA.connect(gA); gA.connect(master);
-    revBus.connect(convB); convB.connect(gB); gB.connect(master);
-  }
-
-  // which acoustic a room is, from what it is made of and how big it is
-  function kindOf(key) {
-    const sp = SPACES[key];
-    if (!sp) return 'room';
-    const [W, H, D] = sp.size;
-    if (W * H * D > 320) return 'hall';
-    if (sp.floor === 'carpet') return 'dead';
-    if (sp.floor === 'concrete' || sp.ceiling === 'concrete') return 'hall';
-    return 'room';
-  }
-
-  function setRoom(key) {
-    if (!ctx || !revBus) return;
-    const k = kindOf(key);
-    if (k === roomKind) return;
-    roomKind = k;
-    const now = ctx.currentTime;
-    const idle = liveIsA ? convB : convA, ig = liveIsA ? gB : gA, og = liveIsA ? gA : gB;
-    idle.buffer = makeIR(k);
-    ig.gain.cancelScheduledValues(now);
-    og.gain.cancelScheduledValues(now);
-    ig.gain.setValueAtTime(ig.gain.value, now);
-    og.gain.setValueAtTime(og.gain.value, now);
-    ig.gain.linearRampToValueAtTime(ROOMS[k].wet, now + 0.6);
-    og.gain.linearRampToValueAtTime(0, now + 0.6);
-    liveIsA = !liveIsA;
-  }
-
   // --- how much building is in the way ------------------------------------
   //
   // A sound made in the room you are standing in arrives whole. One made
   // through an open door arrives with its top end gone, and one made two rooms
-  // away is a thud you can barely place. This is the cheapest large cue there
-  // is and the building already knows everything needed to work it out.
+  // away is a thud you can barely place. One filter per sound, and the building
+  // already knows everything needed to work it out.
   function occlusion(at) {
     const here = currentSpace;
     const there = spaceAt(at[0], at[2]);
@@ -178,25 +88,15 @@ const Audio = (() => {
     } else {
       pn.setPosition(at[0], at[1], at[2]);
     }
-    // input -> what is in the way -> where it is -> your ears, with a send to
-    // whatever room you are standing in
+    // input -> however much wall is in the way -> where it is -> your ears
     const occ = occlusion(at);
     const lp = ctx.createBiquadFilter();
     lp.type = 'lowpass'; lp.frequency.value = occ.cut; lp.Q.value = 0.4;
     const g = ctx.createGain(); g.gain.value = occ.gain;
     lp.connect(g); g.connect(pn); pn.connect(master);
-    if (revBus) { const send = ctx.createGain(); send.gain.value = occ.gain; g.connect(send); send.connect(revBus); }
     return lp;
   }
-
-  // Unplaced sounds -- your own feet -- still belong in the room, they just do
-  // not come from anywhere in it.
-  function dry() {
-    if (!revBus) return master;
-    const g = ctx.createGain(); g.gain.value = 1;
-    g.connect(master); g.connect(revBus);
-    return g;
-  }
+  function dry() { return master; }
 
   // where the ears are, and which way they are pointing
   function listen(pos, fwd, up) {
@@ -213,87 +113,134 @@ const Audio = (() => {
     }
   }
 
-  // --- what a thing sounds like when it hits something ---------------------
+  // --- the sound effects, drawn once at load ------------------------------
   //
-  // Not a filtered noise burst. A real impact is a very short excitation --
-  // the two surfaces meeting -- ringing the modes of whatever was hit, and it
-  // is the modes that tell you what the object is made of and how big it is.
-  // So: a two millisecond click through a bank of high-Q bandpass filters
-  // tuned to a few of those modes, each with its own decay.
+  // These are not simulations. The physical approach -- exciting a bank of
+  // resonators tuned to an object's modes -- is correct and sounds like a
+  // syndrum, because what a real recording of a dropped mug contains is mostly
+  // things modal synthesis does not model: the scrape of the two surfaces, the
+  // rattle afterwards, the room. And it costs a filter bank per hit.
   //
-  // The ratios are the useful part. Wood is dull and dies immediately, metal
-  // rings for a second and its partials are nowhere near harmonic, glass is
-  // bright and clean, stone is a thud with almost no ring at all.
-  const MODES = {
-    wood:    { r: [1, 2.42, 3.68],          d: [0.13, 0.08, 0.05], q: 11, bright: 0.55, thump: 0.55 },
-    metal:   { r: [1, 2.76, 5.40, 8.93],    d: [1.10, 0.85, 0.60, 0.40], q: 34, bright: 1.00, thump: 0.30 },
-    glass:   { r: [1, 2.32, 4.25],          d: [0.55, 0.40, 0.28], q: 28, bright: 1.00, thump: 0.20 },
-    ceramic: { r: [1, 2.09, 3.41],          d: [0.34, 0.24, 0.16], q: 20, bright: 0.85, thump: 0.35 },
-    stone:   { r: [1, 1.78, 2.61],          d: [0.09, 0.06, 0.04], q: 7,  bright: 0.40, thump: 0.80 },
-    soft:    { r: [1, 1.90],                d: [0.05, 0.035], q: 4,  bright: 0.20, thump: 0.70 }
-  };
+  // So these are drawn, once, at load, exactly the way the textures are drawn
+  // onto canvases at load: a designed waveform written into a buffer, and after
+  // that playing one costs a single node. Foley rather than physics -- louder,
+  // shorter and more characterful than the real thing, which is what a sound
+  // effect has always been.
+  //
+  // Several variants of each, and a bit of pitch either way on top, because the
+  // giveaway is never the sound itself, it is hearing it twice.
+  const SFX = {};
 
-  let voices = 0;
-  function impact(v, mass, at, cls, size) {
-    if (!ctx) return;
-    const now = ctx.currentTime;
-    if (now - lastImpact < 0.022) return;
-    if (voices > 10) return;                       // a shelf collapsing is not a chord
-    lastImpact = now;
-
-    const M = MODES[cls] || MODES.wood;
-    const hit = Math.min(1, v / 5.5);              // how hard, 0..1
-    const out = at ? panner(at) : dry();
-
-    // Big things ring low. Size does most of the work and mass trims it, which
-    // is why a bucket and a brick of the same size do not sound alike.
-    const f0 = Math.max(70, Math.min(2200,
-      95 / Math.max(0.06, size || 0.3) * (1 / Math.sqrt(Math.max(0.15, mass))) * 1.6));
-
-    // the excitation: a couple of milliseconds of noise, brighter the harder it
-    // was hit, because a hard hit puts energy into the higher modes
-    const ex = ctx.createBufferSource(); ex.buffer = noiseBuffer(0.05);
-    const hp = ctx.createBiquadFilter(); hp.type = 'highpass';
-    hp.frequency.value = 200 + 2600 * hit * M.bright;
-    const eg = ctx.createGain();
-    eg.gain.setValueAtTime(0.9, now);
-    eg.gain.exponentialRampToValueAtTime(0.0001, now + 0.0035 + 0.004 * (1 - hit));
-    ex.connect(hp); hp.connect(eg);
-
-    let longest = 0;
-    for (let i = 0; i < M.r.length; i++) {
-      // a few per cent off every time, so the same mug twice is not the same
-      const f = f0 * M.r[i] * (0.97 + Math.random() * 0.06);
-      if (f > 11000) continue;
-      const bp = ctx.createBiquadFilter();
-      bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = M.q * (0.8 + Math.random() * 0.4);
-      const d = M.d[i] * (0.85 + Math.random() * 0.3) * (0.6 + 0.4 * hit);
-      const g = ctx.createGain();
-      const amp = Math.min(0.5, 0.42 * hit) / (1 + i * 1.15);
-      g.gain.setValueAtTime(0.0001, now);
-      g.gain.exponentialRampToValueAtTime(Math.max(0.0002, amp), now + 0.004);
-      g.gain.exponentialRampToValueAtTime(0.0001, now + d);
-      eg.connect(bp); bp.connect(g); g.connect(out);
-      longest = Math.max(longest, d);
+  function buf(sec) { return ctx.createBuffer(1, Math.max(1, Math.floor(ctx.sampleRate * sec)), ctx.sampleRate); }
+  // a decaying sine, which is the body of most things
+  function tone(d, f, amp, dec, sr, drop) {
+    for (let i = 0; i < d.length; i++) {
+      const t = i / sr;
+      const e = Math.exp(-t * dec);
+      if (e < 0.0004) break;
+      d[i] += Math.sin(2 * Math.PI * f * t * (drop ? 1 - drop * Math.min(1, t * 6) : 1)) * amp * e;
     }
+  }
+  // and noise through a one-pole, which is the surface
+  function fizz(d, amp, dec, sr, cut, hp) {
+    let lp = 0, prev = 0;
+    const k = Math.min(1, cut / (sr * 0.5));
+    for (let i = 0; i < d.length; i++) {
+      const t = i / sr, e = Math.exp(-t * dec);
+      if (e < 0.0004) break;
+      lp += ((Math.random() * 2 - 1) - lp) * k;
+      const v = hp ? lp - prev : lp;
+      prev = lp;
+      d[i] += v * amp * e;
+    }
+  }
+  function clip(d) { for (let i = 0; i < d.length; i++) d[i] = Math.max(-1, Math.min(1, d[i])); }
 
-    // and the thud of the two things actually meeting, which is most of what
-    // you hear from anything heavy or soft
-    const th = ctx.createOscillator(); th.type = 'sine';
-    const tf = Math.max(38, Math.min(190, f0 * 0.22));
-    th.frequency.setValueAtTime(tf * 1.7, now);
-    th.frequency.exponentialRampToValueAtTime(tf, now + 0.05);
-    const tg = ctx.createGain();
-    tg.gain.setValueAtTime(0.0001, now);
-    tg.gain.exponentialRampToValueAtTime(Math.max(0.0002, 0.30 * hit * M.thump * Math.min(1.6, 0.5 + mass * 0.35)), now + 0.006);
-    tg.gain.exponentialRampToValueAtTime(0.0001, now + 0.055 + 0.10 * M.thump);
-    th.connect(tg); tg.connect(out);
+  function renderSFX() {
+    const sr = ctx.sampleRate;
+    const make = (n, sec, draw) => {
+      const out = [];
+      for (let v = 0; v < n; v++) { const b = buf(sec); draw(b.getChannelData(0), sr, v); clip(b.getChannelData(0)); out.push(b); }
+      return out;
+    };
 
-    const stop = now + Math.max(longest, 0.18) + 0.05;
-    ex.start(now); ex.stop(now + 0.06);
-    th.start(now); th.stop(stop);
-    voices++;
-    setTimeout(() => { voices--; }, (stop - now) * 1000 + 40);
+    // a knock. Wood is a click and two low partials that die immediately.
+    SFX.wood = make(3, 0.22, (d, sr, v) => {
+      fizz(d, 0.55, 260, sr, 5000, true);
+      tone(d, 190 * (1 + v * 0.13), 0.55, 34, sr, 0.05);
+      tone(d, 430 * (1 + v * 0.09), 0.22, 52, sr);
+    });
+    // a clang. Long, bright, and deliberately overdone.
+    SFX.metal = make(3, 0.95, (d, sr, v) => {
+      fizz(d, 0.40, 180, sr, 9000, true);
+      tone(d, 520 * (1 + v * 0.11), 0.30, 3.2, sr);
+      tone(d, 1437 * (1 + v * 0.07), 0.22, 4.1, sr);
+      tone(d, 2790 * (1 + v * 0.05), 0.14, 6.0, sr);
+      tone(d, 233 * (1 + v * 0.1), 0.20, 5.5, sr, 0.02);
+    });
+    // a chink.
+    SFX.glass = make(3, 0.45, (d, sr, v) => {
+      fizz(d, 0.30, 500, sr, 12000, true);
+      tone(d, 2100 * (1 + v * 0.09), 0.30, 9, sr);
+      tone(d, 3350 * (1 + v * 0.06), 0.18, 12, sr);
+      tone(d, 890 * (1 + v * 0.07), 0.16, 11, sr);
+    });
+    // a clonk. Mugs, jars, tins.
+    SFX.ceramic = make(3, 0.35, (d, sr, v) => {
+      fizz(d, 0.42, 320, sr, 7000, true);
+      tone(d, 820 * (1 + v * 0.1), 0.34, 14, sr, 0.03);
+      tone(d, 1710 * (1 + v * 0.07), 0.16, 19, sr);
+    });
+    // a thud, with nothing ringing at all.
+    SFX.stone = make(3, 0.22, (d, sr, v) => {
+      fizz(d, 0.50, 300, sr, 2200);
+      tone(d, 96 * (1 + v * 0.12), 0.75, 26, sr, 0.18);
+    });
+    // a flump.
+    SFX.soft = make(3, 0.20, (d, sr, v) => {
+      fizz(d, 0.55, 300, sr, 900 + v * 250);
+      tone(d, 74, 0.30, 40, sr, 0.25);
+    });
+
+    // feet, by what is underfoot
+    SFX.carpet = make(3, 0.16, (d, sr, v) => { fizz(d, 0.34, 340, sr, 1100 + v * 200); tone(d, 88, 0.20, 46, sr, 0.2); });
+    SFX.tile = make(3, 0.20, (d, sr, v) => { fizz(d, 0.30, 200, sr, 9000, true); tone(d, 640 + v * 90, 0.16, 30, sr); tone(d, 110, 0.22, 44, sr, 0.15); });
+    SFX.concrete = make(3, 0.20, (d, sr, v) => { fizz(d, 0.34, 230, sr, 5200, true); tone(d, 128, 0.26, 40, sr, 0.15); });
+
+    // going through the fold. Not a pitch-drop -- that is a sound effect from a
+    // different kind of game. A held breath: everything is pulled inward and
+    // then let go, with nothing where the middle of it should be.
+    // This one is played at the instant you cross, so the event is at the front
+    // of it and everything else is the tail. The first version had its arrival
+    // two thirds of the way through a second-long buffer, which put the sound
+    // of going through a door most of a second after you had gone through it.
+    SFX.through = make(2, 0.80, (d, sr, v) => {
+      const n = d.length;
+      let lp = 0;
+      for (let i = 0; i < n; i++) {
+        const t = i / sr, u = i / n;
+        // the arrival: a soft low thump right at the top
+        const hit = Math.exp(-t * 9);
+        d[i] += Math.sin(2 * Math.PI * (58 + v * 6) * t * (1 - 0.22 * Math.min(1, t * 4))) * 0.42 * hit;
+        // air pulled past you, dying away
+        lp += ((Math.random() * 2 - 1) - lp) * 0.06;
+        d[i] += lp * 0.5 * Math.exp(-t * 5.5) * (1 - 0.6 * u);
+        // and a little of the room going with it
+        d[i] += Math.sin(2 * Math.PI * 143 * t) * 0.10 * Math.exp(-t * 3.2);
+      }
+    });
+  }
+
+  // playing one is a single node
+  function play(bank, gain, rate, at) {
+    if (!ctx || !bank || !bank.length) return;
+    const b = bank[(Math.random() * bank.length) | 0];
+    const src = ctx.createBufferSource();
+    src.buffer = b;
+    src.playbackRate.value = rate;
+    const g = ctx.createGain(); g.gain.value = gain;
+    src.connect(g); g.connect(at ? panner(at) : dry());
+    src.start();
   }
 
   function burst(freq, dur, gain, type, q, at) {
@@ -313,32 +260,25 @@ const Audio = (() => {
     start,
     // A footstep on carpet is not a footstep on concrete, and the room already
     // knows which it is standing on.
-    step: (floor) => {
-      const f = floor === 'carpet' ? { f: 240, d: 0.075, g: 0.030, q: 0.7 }
-              : floor === 'tile'   ? { f: 640, d: 0.085, g: 0.055, q: 1.5 }
-              : floor === 'concrete' ? { f: 500, d: 0.10, g: 0.050, q: 1.1 }
-              : { f: 380, d: 0.11, g: 0.048, q: 0.9 };
-      burst(f.f + Math.random() * f.f * 0.4, f.d, f.g, 'bandpass', f.q);
-    },
+    step: (floor) => play(SFX[floor] || SFX.tile, 0.5, 0.92 + Math.random() * 0.16),
     blip: (f, d, g) => burst(f, d, g),
-    impact,
+    impact: (v, mass, at, cls, size) => {
+      if (!ctx) return;
+      const now = ctx.currentTime;
+      if (now - lastImpact < 0.02) return;
+      lastImpact = now;
+      const hit = Math.min(1, v / 5.0);
+      // small things ring higher, and nothing is ever played at exactly the
+      // pitch it was drawn at
+      const r = (0.80 + 0.55 / Math.max(0.25, (size || 0.3) + mass * 0.25)) * (0.94 + Math.random() * 0.12);
+      play(SFX[cls] || SFX.wood, Math.min(0.75, 0.16 + 0.75 * hit * hit), Math.max(0.55, Math.min(1.9, r)), at);
+    },
     listen,
     // the sound of the room changing behind you
-    through: () => {
-      if (!ctx) return;
-      const o = ctx.createOscillator(); o.type = 'sine';
-      o.frequency.setValueAtTime(120, ctx.currentTime);
-      o.frequency.exponentialRampToValueAtTime(38, ctx.currentTime + 0.55);
-      const g = ctx.createGain();
-      g.gain.setValueAtTime(0.0001, ctx.currentTime);
-      g.gain.exponentialRampToValueAtTime(0.09, ctx.currentTime + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.8);
-      o.connect(g); g.connect(master); o.start(); o.stop(ctx.currentTime + 0.85);
-      burst(2400, 0.25, 0.03, 'highpass', 0.7);
-    },
+    through: () => play(SFX.through, 0.55, 0.96 + Math.random() * 0.08),
     setTone: (v) => { if (toneGain) toneGain.gain.value = v; },
-    setRoom, occlusion,
-    get roomKind() { return roomKind; }
+    occlusion,
+    get sfx() { return SFX; }
   };
 })();
 
@@ -594,7 +534,6 @@ function updateSpace() {
   const label = SPACES[sp.key].label;
   if (label && label !== '—' && prompt) showPrompt(label, 2600);
   Audio.setTone(SPACES[sp.key]._type === 'warehouse' ? 0.13 : 0.09);
-  Audio.setRoom(sp.key);
 }
 
 // Fill the fixed light pool from wherever the camera is (see 20-build.js for
