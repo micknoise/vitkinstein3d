@@ -474,6 +474,23 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
       assert(sides.wrong.length === 0, 'every portal knows which side of it you are on after a crossing' +
         (sides.wrong.length ? ' — ' + sides.wrong.join('; ') : ''));
 
+    // --- the view through a doorway is developed like the doorway -------------
+    // The portal's target is linear and so is the scene's, and the vision pass
+    // tone-maps the lot once at the end. If this quad tone-maps its own output
+    // as well, that output is tone-mapped and gamma-encoded twice and the view
+    // through a portal comes out several times brighter than the room it is
+    // showing -- which is what playtesters kept reporting.
+    const dev = await p.evaluate(() => {
+      const u = VK.PORTALS[0].mesh.material.uniforms;
+      return { linearOut: u.linearOut.value, exposure: u.exposure.value,
+               rendererExposure: VK.renderer.toneMappingExposure };
+    });
+    assert(dev.linearOut === 1,
+      'a portal writes linear and is developed with the room around it');
+    assert(Math.abs(dev.exposure - dev.rendererExposure) < 0.01,
+      'and when it has to develop its own view, at the same exposure as everything else (' +
+      dev.exposure.toFixed(2) + ' vs ' + dev.rendererExposure.toFixed(2) + ')');
+
     // --- a portal face must not show a view it did not just draw ------------
     // The quad samples its render target in screen space, so drawing it on a
     // frame where the view was not refreshed puts a picture taken from the old

@@ -15704,12 +15704,27 @@ const PORTAL_VERT = `
     gl_Position = p;
   }`;
 
-// The render target holds linear values with no tone mapping (three skips it
-// for off-screen passes), so the portal has to finish the job itself or the
-// view through it comes out flat and bright compared with the room around it.
+// The portal's target holds linear values with no tone mapping -- three skips it
+// for off-screen passes. What to do about that depends on where this quad is
+// being drawn to.
+//
+// Normally it is drawn into the scene target, which is *also* linear and gets
+// tone-mapped once, at the end, by the vision pass. In that case the honest
+// thing is to write the linear value straight through and be tone-mapped along
+// with the room around it. Doing anything else here means the view through a
+// doorway is developed differently from the doorway, which is exactly what
+// playtesters kept seeing: it used to tone-map and gamma-encode its output into
+// a linear buffer that then tone-mapped and gamma-encoded it again, on top of
+// an exposure of 1.15/0.6 against the room's 1.15. Measured: the view through a
+// portal came out 5.3x brighter than the room it was showing.
+//
+// With ?nofx=1 there is no such pass -- the scene goes straight to the canvas
+// and three tone-maps the ordinary materials on the way -- and a ShaderMaterial
+// is not one of those, so then it does have to finish the job itself.
 const PORTAL_FRAG = `
   uniform sampler2D tex;
   uniform float exposure;
+  uniform float linearOut;
   varying vec4 vScreen;
   vec3 rrt(vec3 v) {
     vec3 a = v * (v + 0.0245786) - 0.000090537;
@@ -15718,7 +15733,9 @@ const PORTAL_FRAG = `
   }
   void main() {
     vec2 uv = (vScreen.xy / vScreen.w) * 0.5 + 0.5;
-    vec3 c = texture2D(tex, uv).rgb * exposure;
+    vec3 lin = texture2D(tex, uv).rgb;
+    if (linearOut > 0.5) { gl_FragColor = vec4(lin, 1.0); return; }
+    vec3 c = lin * exposure;
     const mat3 IN = mat3(0.59719, 0.07600, 0.02840, 0.35458, 0.90834, 0.13383, 0.04823, 0.01566, 0.83777);
     const mat3 OUT = mat3(1.60475, -0.10208, -0.00327, -0.53108, 1.10813, -0.07276, -0.07367, -0.00605, 1.07602);
     c = clamp(OUT * rrt(IN * c), 0.0, 1.0);
@@ -15765,6 +15782,12 @@ function buildPortals() {
   }
 }
 
+// Told by initVision(), which is the only thing that knows whether there is a
+// pass at the end to do the developing.
+function setPortalOutput(linear) {
+  for (const p of PORTALS) p.mesh.material.uniforms.linearOut.value = linear ? 1 : 0;
+}
+
 function makeFace(f) {
   const anchor = new THREE.Object3D();
   anchor.position.set(f.pos[0], f.pos[1], f.pos[2]);
@@ -15773,7 +15796,7 @@ function makeFace(f) {
   scene.add(anchor);
 
   const mat = new THREE.ShaderMaterial({
-    uniforms: { tex: { value: null }, exposure: { value: 1.15 / 0.6 } },
+    uniforms: { tex: { value: null }, exposure: { value: 1.15 }, linearOut: { value: 0 } },
     vertexShader: PORTAL_VERT, fragmentShader: PORTAL_FRAG,
     side: THREE.DoubleSide
   });
@@ -15982,8 +16005,11 @@ function renderPortals(visible) {
   if (!visible.length) return;
 
   const prevTarget = renderer.getRenderTarget();
-  // a doorway's worth of room, seen from several metres away, does not need
-  // real-time shadows -- and this is three quarters of what the pass cost
+  // No shadows in a portal view, and not only because it is three quarters of
+  // what the pass costs. The light pool is refilled at *this* camera below, so
+  // rendering shadows here bakes the maps against the portal's light positions
+  // and the main render then uses them -- every room goes dark. Tried it,
+  // measured it, put it back.
   const hadShadows = renderer.shadowMap.enabled;
   renderer.shadowMap.enabled = false;
 
@@ -16566,6 +16592,7 @@ function makeRT(w, h) {
 
 function initVision() {
   FX_OFF = QS.has('nofx');
+  setPortalOutput(!FX_OFF);   // see 25-portal.js: who develops the portal's view
   FX_GAIN = QS.has('fx') ? Math.max(0, parseFloat(QS.get('fx')) || 1) : 1;
   if (FX_OFF) return;
   const size = new THREE.Vector2();

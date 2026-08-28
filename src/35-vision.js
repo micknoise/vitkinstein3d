@@ -220,6 +220,7 @@ function makeRT(w, h) {
 
 function initVision() {
   FX_OFF = QS.has('nofx');
+  setPortalOutput(!FX_OFF);   // see 25-portal.js: who develops the portal's view
   FX_GAIN = QS.has('fx') ? Math.max(0, parseFloat(QS.get('fx')) || 1) : 1;
   if (FX_OFF) return;
   const size = new THREE.Vector2();
