@@ -183,7 +183,7 @@ function tryDoor() {
   const d = h.object.userData.door;
   if (!d) return;
   d.open = !d.open;
-  Audio.creak(d.open);
+  Audio.creak(d.open, [d.pivot.position.x, 1.0, d.pivot.position.z]);
 }
 
 function updateDoors(dt) {

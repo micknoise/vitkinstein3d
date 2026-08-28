@@ -145,6 +145,7 @@ Each requirement has an acceptance test an operator can run by hand.
 | **N2** | Clean console during load and play. | Devtools. |
 | **N3** | Loads to playable in a few seconds. Generation, texture synthesis and normal-map derivation all happen at load. | Time it. |
 | **N4** | Runs at monitor refresh on a GPU of the last decade at 1080p. Rooms are drawn a group at a time — the one you are in, the ones it opens onto, and anything two steps out that is on screen. Everything static in a room is merged to one mesh per material. Lights are descriptions filled into a pool of twelve each frame, scored by contribution at the camera, two of which cast shadows; shadow maps redraw only when a caster has moved. Pixel ratio adapts between 0.75 and 1.25. At most two portals render per frame, each an extra pass at 32% of the render, only within 14 m and on screen. | Move around with a frame counter. See §5 on measurement. |
+| **N5a** | Sound is positional: an impact, a door and the distant thump are heard from where they happen, and turn around you as you turn. The room tone and the mains hum are not positional, being the room itself. | Put on headphones, drop something to one side and turn on the spot. |
 | **N6** | The cost does not creep back. `npm run perf` reports draw calls and triangles per room and exits non-zero above a stated budget — 280 draw calls and 11,000 triangles per room, 640 geometries in the scene. | `npm run perf all` across the five test seeds. |
 | **N7** | A seed reproduces a building exactly, surfaces included: the same number gives the same layout, the same wear and the same cracks in the same plaster. | Load `?seed=424242` twice and compare. `npm run compare` and `npm run diff` do it by pixel. |
 | **N5** | Chromium, Firefox, Safari on desktop. Pointer lock makes it desktop-only by design. | Two of the three. |
@@ -233,8 +234,7 @@ rendering, `VK.openAll()` opens every door, `VK.spaces` is the plan, `VK.count()
 4. **No inventory and no gating.** Every object is takeable and nothing is required.
 5. **Shadows are rationed.** Two lights cast shadows, the two brightest slots of the pool at the
    camera, and the maps redraw only when a caster has moved — never on consecutive frames.
-6. **Sound is monophonic.** No spatialisation.
-7. **Desktop only.** Pointer lock excludes touch; no gamepad.
+6. **Desktop only.** Pointer lock excludes touch; no gamepad.
 
 ---
 

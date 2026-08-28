@@ -15,7 +15,7 @@ what would make us drop it.
 `main` is the only branch; local and `origin/main` agree, and the committed
 `index.html` is a faithful build of the committed `src/`.
 
-Verified on the current build, five seeds, headless: 33/33 checks pass —
+Verified on the current build, five seeds, headless: 35/35 checks pass —
 generation, no room overlaps, every room reachable, the body, the hands, doors,
 no trim across a doorway, portal traversal, objects and carried objects through
 portals, portal faces not showing stale views, objects settling, clean console.
@@ -314,7 +314,7 @@ and ask which felt worse. They should not be able to say why.
 name is too strong.
 **Size.** Small.
 
-### C2 · Spatial sound
+### C2 · Spatial sound — **done, 2026-08-28**
 **Claim.** The distant thump is currently distant in timbre only. A `PannerNode`
 per source is the cheapest large improvement left in the build — and it gives a
 marking player another way to know where they are, which is the loop.
@@ -425,6 +425,7 @@ actual product of the plan.
 |---|---|---|---|
 | 2026-08-27 | **baseline — v0.2 as played** | works | Played on real hardware. Does what it is supposed to do; a genuinely weird experience. This is the control condition every later experiment is judged against — if a change makes it *more* interesting but *less* weird, it has failed. |
 | 2026-08-27 | **observed play loop** | finding | Players work out the architecture is impossible, then place objects in rooms as markers to tell whether they have been there, then realise what is happening. Undesigned and emergent. Recorded in full as §2; it reorders the plan, kills A3, and creates A4. |
+| 2026-08-28 | **C2 — spatial sound** | kept | A listener that follows the camera, and a `PannerNode` per event that has a place: impacts play from where the object hit, door creaks from the door, and the far thump now arrives on a bearing 11–24m away instead of from nowhere. Room tone and the mains hum stay monophonic deliberately — they are the room, not events in it, and giving them a position puts the room in a corner. Footsteps stay monophonic too, which the plan did not anticipate: they happen *at* the listener, so a panner costs a node and does nothing. Gives a marking player another way to know where they are, which is the §2 loop. |
 | 2026-08-28 | **A1a — change behind your back, markers respected** | **for Mick to judge** | A room you return to is not quite the room you left. One change per visit, made while the room is switched off so it is never seen happening: a light goes out, an unlit one comes on, a door you left open is shut, a shut one stands open. Never more than one, never the last light in a room, and never — measured, not asserted — anything you can pick up. Doors are the strongest change and the likeliest to break that promise, so a door only changes if nothing is standing in its swing. Light fittings had to come out of the E1 merge so a bulb can be seen to go out, which is why the mesh budget went up. **Judge by watching someone play without telling them: the tell is a double-take. If they say "that's a bug", it is too large.** |
 | 2026-08-28 | **objects slide after they settle** | noted, not chased | With the house left alone and drift off, 27 of 203 objects move more than 2cm over 30s of simulated time; the worst goes 0.85m. Not caused by A1a — identical with drift off. First guess was rolling, and that is not it: the big movers are all `Box` shapes of mass 4, and the cylinders barely move (0.11m). More likely generator-placed heavy objects resolving an overlap they were dressed into. The thing that actually matters for §2 is whether a marker *the player places* stays, and mostly it does — five placed and walked away from moved 0, 0, 0.012, 0 and 0.486m. Left alone deliberately: chasing it means changing damping or friction on the grabbables, and CLAUDE.md says not to stabilise them away without meaning to. |
 | 2026-08-28 | **the corridor was sometimes sealed off** | fixed | Reported from play: the entrance to the endless corridor is visible in the scullery but only a quarter of the doorway is there and you cannot get through. Two faults in the B3 placement. The doorway is cut at the corridor's centre, but the corridor was slid along the parent's wall by up to a third of its own length, so its centre ended up past the end of the wall it was joining and the opening was clipped to a slot — the grow loop bounds exactly this and I had not copied the bound. And the corridor could be as narrow as 1.2m, which cannot hold a 1.0m doorway in its end wall once the wall has thickness, so the end portals were clipped too. New check: every opening must fit inside the wall it is cut into. The reachability test could never have caught this — it reads the plan, where the two openings line up perfectly, not the geometry that gets built. |

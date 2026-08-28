@@ -181,6 +181,33 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
       assert(port.space === port.target, 'and in the room that door opens onto (' + port.space + ')');
     }
 
+    // --- sound comes from where the thing happened (C2) ----------------------
+    // Room tone and the mains hum stay monophonic on purpose: they are the room
+    // itself, not events in it. Footsteps too -- they happen at the listener, so
+    // a panner would cost a node and do nothing.
+    const sound = await p.evaluate(() => {
+      const T = VK.THREE;
+      const AC = window.AudioContext || window.webkitAudioContext;
+      let panners = 0;
+      const orig = AC.prototype.createPanner;
+      AC.prototype.createPanner = function (...a) { panners++; return orig.apply(this, a); };
+      try {
+        VK.Audio.start();
+        const before = panners;
+        VK.Audio.creak(true, [1, 1, 5]);          // a door, somewhere
+        const placed = panners - before;
+        VK.Audio.step();                          // your own feet
+        VK.Audio.creak(true);                     // no place given
+        const unplaced = panners - before - placed;
+        VK.Audio.listen(new T.Vector3(1, 1.2, 2), new T.Vector3(0, 0, -1), new T.Vector3(0, 1, 0));
+        return { placed, unplaced, listened: true };
+      } finally {
+        AC.prototype.createPanner = orig;
+      }
+    });
+    assert(sound.placed === 1, 'a door heard from across the room is played from where it is');
+    assert(sound.unplaced === 0, 'and your own footsteps are not (' + sound.unplaced + ' pointless panners)');
+
     // --- the house changes behind your back, and only its own things (A1a) ---
     const drift = await p.evaluate(() => {
       const T = VK.THREE;

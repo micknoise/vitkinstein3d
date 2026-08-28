@@ -15832,7 +15832,7 @@ function tryDoor() {
   const d = h.object.userData.door;
   if (!d) return;
   d.open = !d.open;
-  Audio.creak(d.open);
+  Audio.creak(d.open, [d.pivot.position.x, 1.0, d.pivot.position.z]);
 }
 
 function updateDoors(dt) {
@@ -15926,6 +15926,7 @@ function updateHover() {
 
 const Audio = (() => {
   let ctx = null, master = null, toneGain = null, lastImpact = 0;
+  const earsAt = { x: 0, y: 1.2, z: 0 };      // last known listener position
 
   function noiseBuffer(sec) {
     const n = ctx.sampleRate * sec;
@@ -15968,20 +15969,66 @@ const Audio = (() => {
         g.gain.setValueAtTime(0.0001, ctx.currentTime);
         g.gain.exponentialRampToValueAtTime(0.12, ctx.currentTime + 0.03);
         g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 1.4);
-        o.connect(g); g.connect(master); o.start(); o.stop(ctx.currentTime + 1.5);
+        // somewhere else in the building, at a bearing you could point to --
+        // which is the whole point of it, and it was coming from nowhere
+        const a = Math.random() * Math.PI * 2, d = 11 + Math.random() * 13;
+        o.connect(g);
+        g.connect(panner([earsAt.x + Math.cos(a) * d, earsAt.y - 0.3, earsAt.z + Math.sin(a) * d]));
+        o.start(); o.stop(ctx.currentTime + 1.5);
       }
       scheduleFar();
     }, t);
   }
 
-  function burst(freq, dur, gain, type, q) {
+  // C2. A sound that happens somewhere should come from there. The room tone
+  // and the mains hum stay monophonic on purpose -- they are the room itself,
+  // not events in it, and giving them a position would put the room in a
+  // corner. Footsteps stay monophonic too: they happen at the listener, so a
+  // panner would do nothing but cost a node.
+  //
+  // Each event makes its own panner and lets it go when the sound ends; there
+  // are only ever a handful at once.
+  function panner(at) {
+    const pn = ctx.createPanner();
+    pn.panningModel = 'HRTF';
+    pn.distanceModel = 'inverse';
+    pn.refDistance = 1.6;
+    pn.rolloffFactor = 1.15;
+    pn.maxDistance = 45;
+    if (pn.positionX) {
+      pn.positionX.value = at[0]; pn.positionY.value = at[1]; pn.positionZ.value = at[2];
+    } else {
+      pn.setPosition(at[0], at[1], at[2]);
+    }
+    pn.connect(master);
+    return pn;
+  }
+
+  // where the ears are, and which way they are pointing
+  function listen(pos, fwd, up) {
+    earsAt.x = pos.x; earsAt.y = pos.y; earsAt.z = pos.z;
+    if (!ctx) return;
+    const L = ctx.listener;
+    if (L.positionX) {
+      L.positionX.value = pos.x; L.positionY.value = pos.y; L.positionZ.value = pos.z;
+      L.forwardX.value = fwd.x; L.forwardY.value = fwd.y; L.forwardZ.value = fwd.z;
+      L.upX.value = up.x; L.upY.value = up.y; L.upZ.value = up.z;
+    } else {
+      L.setPosition(pos.x, pos.y, pos.z);
+      L.setOrientation(fwd.x, fwd.y, fwd.z, up.x, up.y, up.z);
+    }
+  }
+
+  function burst(freq, dur, gain, type, q, at) {
     if (!ctx) return;
     const s = ctx.createBufferSource(); s.buffer = noiseBuffer(0.4);
     const f = ctx.createBiquadFilter(); f.type = type || 'bandpass'; f.frequency.value = freq; f.Q.value = q || 1.2;
     const g = ctx.createGain();
     g.gain.setValueAtTime(gain, ctx.currentTime);
     g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + dur);
-    s.connect(f); f.connect(g); g.connect(master);
+    s.connect(f); f.connect(g);
+    const out = at ? panner(at) : master;
+    g.connect(out);
     s.start(); s.stop(ctx.currentTime + dur + 0.02);
   }
 
@@ -15989,14 +16036,15 @@ const Audio = (() => {
     start,
     step: () => burst(380 + Math.random() * 180, 0.11, 0.055, 'bandpass', 0.9),
     blip: (f, d, g) => burst(f, d, g),
-    impact: (v, mass) => {
+    impact: (v, mass, at) => {
       if (!ctx) return;
       const now = ctx.currentTime;
       if (now - lastImpact < 0.03) return;
       lastImpact = now;
       const g = Math.min(0.35, v * 0.045);
-      burst(160 + 900 / Math.max(0.3, mass), 0.07 + Math.min(0.2, mass * 0.02), g, 'bandpass', 1.6);
+      burst(160 + 900 / Math.max(0.3, mass), 0.07 + Math.min(0.2, mass * 0.02), g, 'bandpass', 1.6, at);
     },
+    listen,
     // the sound of the room changing behind you
     through: () => {
       if (!ctx) return;
@@ -16010,7 +16058,7 @@ const Audio = (() => {
       o.connect(g); g.connect(master); o.start(); o.stop(ctx.currentTime + 0.85);
       burst(2400, 0.25, 0.03, 'highpass', 0.7);
     },
-    creak: (opening) => {
+    creak: (opening, at) => {
       if (!ctx) return;
       const o = ctx.createOscillator(); o.type = 'sawtooth';
       const f0 = opening ? 210 : 260;
@@ -16021,7 +16069,7 @@ const Audio = (() => {
       g.gain.linearRampToValueAtTime(0.02, ctx.currentTime + 0.15);
       g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.9);
       const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 900; bp.Q.value = 3;
-      o.connect(bp); bp.connect(g); g.connect(master);
+      o.connect(bp); bp.connect(g); g.connect(at ? panner(at) : master);
       o.start(); o.stop(ctx.currentTime + 0.95);
     },
     setTone: (v) => { if (toneGain) toneGain.gain.value = v; }
@@ -16139,7 +16187,7 @@ function init() {
   for (const { body } of dynamicPairs) {
     body.addEventListener('collide', e => {
       const v = e.contact.getImpactVelocityAlongNormal();
-      if (Math.abs(v) > 1.2) Audio.impact(Math.abs(v), body.mass);
+      if (Math.abs(v) > 1.2) Audio.impact(Math.abs(v), body.mass, [body.position.x, body.position.y, body.position.z]);
     });
   }
 
@@ -16183,7 +16231,7 @@ function init() {
     THREE, CANNON, SEED, stats,
     get scene() { return scene; }, get camera() { return camera; },
     get world() { return world; }, get spaces() { return SPACES; },
-    MAT, PROPS, doors, PORTALS,
+    MAT, PROPS, doors, PORTALS, Audio,
     get mergeStats() { return mergeStats; },
     get driftCount() { return driftCount; },
     get allLights() { return allLights; },
@@ -16508,6 +16556,8 @@ function syncBodies() {
 // leaves physics driven only by VK.tick() and the picture reproducible.
 let frozenAt = null;
 
+const _earPos = new THREE.Vector3(), _earFwd = new THREE.Vector3(), _earUp = new THREE.Vector3(0, 1, 0);
+
 let acc = 0;
 function animate() {
   requestAnimationFrame(animate);
@@ -16539,6 +16589,9 @@ function animate() {
   updateSpace();
   if (frozenAt !== null) scene.fog.density = targetFog;
   else scene.fog.density += (targetFog - scene.fog.density) * 0.03;
+
+  // the ears go where the eyes are
+  Audio.listen(camera.getWorldPosition(_earPos), camera.getWorldDirection(_earFwd), _earUp);
 
   updateHover();
   if (hoverTarget !== shownHover) {
