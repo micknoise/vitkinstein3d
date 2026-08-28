@@ -100,6 +100,21 @@ const ROOM_TYPES = {
     ]
   },
 
+  // A stairwell. Tall, because the whole point of it is the climb, and the
+  // opening at the top sits three metres up. What is through that opening is
+  // another portal: you go up, and you come out on the ground floor.
+  stairwell: {
+    label: ['the stairs', 'the stairwell', 'the back stairs'],
+    w: [2.5, 3.2], d: [6.4, 7.6], h: [5.6, 6.2],
+    floor: 'tile', wall: 'green', ceiling: 'plaster',
+    skirting: true, dado: false, fog: [0.05, 0.08],
+    lights: 'corridor', decals: [2, 4],
+    dress: [
+      { p: 'bucket', n: [0, 1], where: 'floor' },
+      { p: 'crateStack', n: [0, 1], where: 'wall' }
+    ]
+  },
+
   passage: {
     label: ['the passage', 'the corridor', 'the way through'],
     corridor: true,

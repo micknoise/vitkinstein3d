@@ -254,6 +254,83 @@ function buildWall(def, side, matName) {
   buildTrim(def, side, holes, matName);
 }
 
+// E3. A flight of stairs, and the thing that makes them walkable.
+//
+// The building has no second storey and does not need one. You climb, and at
+// the top there is a doorway three metres up, and that doorway is a portal to
+// an ordinary door on the ground floor somewhere else. So you go up, and you
+// arrive downstairs, and nothing in the engine ever had to learn about height.
+//
+// The steps are drawn but not collided with: a sphere the size of a person
+// catches on every nosing and stops dead. What it actually walks on is a single
+// smooth ramp laid over them, which is invisible and is the only thing here
+// with a rigid body.
+function buildStairs(def) {
+  const [W, H, D] = def.size, [ox, oz] = def.origin;
+  const st = def.stairs;
+  const face = FACE[st.wall];
+  const nx = face.n[0], nz = face.n[2];            // into the room, away from the top
+  const ux = -nz, uz = nx;                         // across the flight
+
+  const top = st.top, land = st.landing, run = st.run;
+  const halfW = (st.width || 1.1);
+
+  // the inside face of the wall the top opening is cut into
+  let wx, wz;
+  if (st.wall === 'north') { wx = ox + st.at; wz = oz - D / 2 + WALL_T; }
+  else if (st.wall === 'south') { wx = ox + st.at; wz = oz + D / 2 - WALL_T; }
+  else if (st.wall === 'west') { wx = ox - W / 2 + WALL_T; wz = oz + st.at; }
+  else { wx = ox + W / 2 - WALL_T; wz = oz + st.at; }
+
+  // the landing you step out onto, solid to the floor
+  const lc = [wx + nx * land / 2, top / 2, wz + nz * land / 2];
+  const lw = (st.wall === 'east' || st.wall === 'west') ? land : halfW * 2;
+  const ld = (st.wall === 'east' || st.wall === 'west') ? halfW * 2 : land;
+  mkBox(lw, top, ld, MAT.concrete || MAT.plaster, lc, 0, 0, { cast: true, jitter: true });
+
+  // the flight
+  const N = Math.max(8, Math.round(top / 0.185));
+  const rise = top / N, going = run / N;
+  for (let i = 0; i < N; i++) {
+    // the step beside the landing is as tall as the landing, and they get
+    // shorter as they go out into the room. Building it the other way up makes
+    // a staircase that descends away from the door at the top of it, which is
+    // both wrong and, for a moment, quite hard to see.
+    const y = top - rise * i;
+    const d0 = land + going * i;                  // distance out from the wall
+    const c = [wx + nx * (d0 + going / 2), y / 2, wz + nz * (d0 + going / 2)];
+    const bw = (st.wall === 'east' || st.wall === 'west') ? going : halfW * 2;
+    const bd = (st.wall === 'east' || st.wall === 'west') ? halfW * 2 : going;
+    mkBox(bw, y, bd, MAT.woodLight, c, 0, 0, { noPhysics: true, cast: true });
+  }
+
+  // and the ramp that is actually walked on. Invisible, no mesh at all.
+  // Longer than the flight at both ends, by more than the player is wide. A
+  // ramp that stops exactly where the landing starts leaves a step: the sphere
+  // touches the landing's face while its centre is still back down the slope,
+  // so its feet are a couple of hundred millimetres below the landing top and
+  // it stops dead. Running past the top means you walk up and step *down* onto
+  // the landing, which gravity does for free; running past the bottom means the
+  // slope emerges from under the floor rather than starting with a lip.
+  const rl = Math.hypot(run, top) + 1.4;
+  const theta = Math.atan2(top, run);
+  // Thick, and buried. A thin slab has an underside, its lower end dips below
+  // the floor, and a player at the foot of the flight ends up wedged between
+  // two static bodies and gets squeezed out through the floor. A deep wedge has
+  // only one face anybody can reach.
+  const THICK = 0.6;
+  const body = new CANNON.Body({ mass: 0, material: PHYS.obj });
+  body.addShape(new CANNON.Box(new CANNON.Vec3(halfW, THICK, rl / 2)));
+  // local +z runs up the flight
+  const dirx = -nx, dirz = -nz;                   // horizontal climb direction
+  const q = new THREE.Quaternion().setFromEuler(
+    new THREE.Euler(-theta, Math.atan2(dirx, dirz), 0, 'YXZ'));
+  body.quaternion.set(q.x, q.y, q.z, q.w);
+  const midOut = land + run / 2;
+  body.position.set(wx + nx * midOut, top / 2 - THICK / Math.cos(theta), wz + nz * midOut);
+  world.addBody(body);
+}
+
 // A window, and what is outside it.
 //
 // What is outside it is nothing. Not a courtyard, not a street, not a view --
@@ -511,6 +588,8 @@ function buildSpace(key, def) {
   }
 
   spaceBounds.push({ key, min: [ox - W / 2, oz - D / 2], max: [ox + W / 2, oz + D / 2], fog: def.fog || 0.05, group });
+
+  if (def.stairs) buildStairs(def);
 
   for (const spec of (def.props || [])) placeProp(def, spec);
 

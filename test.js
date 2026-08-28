@@ -138,10 +138,14 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
       let checked = 0;
       for (const [k, s] of Object.entries(VK.spaces)) {
         if (!s.dado && !s.skirting) continue;
+        // a stairwell's floor is a staircase: a ray fired across it at skirting
+        // height hits the flight, which is the flight doing its job
+        if (s.stairs) continue;
         for (const o of s.openings) {
-          // a window is supposed to have wall under it -- that is the difference
-          // between a window and a doorway
-          if (o.blocked || o.window) continue;
+          // anything with a sill is supposed to have wall under it -- that is
+          // the difference between a window, or a door at the head of a
+          // staircase, and a doorway
+          if (o.blocked || o.sill > 0.3) continue;
           const [W, , D] = s.size, [ox, oz] = s.origin;
           let c, n;
           if (o.wall === 'north') { c = new T.Vector3(ox + o.at, 0, oz - D / 2); n = new T.Vector3(0, 0, -1); }
@@ -152,7 +156,13 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
             if (y > o.h) continue;
             const origin = c.clone().addScaledVector(n, -1.0); origin.y = y;
             const rc = new T.Raycaster(origin, n.clone(), 0.01, 1.35);
-            const hit = rc.intersectObjects(VK.scene.children, true).filter(h => !h.object.userData.noRay)[0];
+            // Only static trim counts. Earlier checks in this run throw things
+            // about and swing every door open, so by now an object may be
+            // sitting in a doorway -- which is a mug in a doorway, not a dado
+            // rail across one.
+            const loose = o => { let x = o; while (x) { if (x.userData && x.userData.grabbable) return true; x = x.parent; } return false; };
+            const hit = rc.intersectObjects(VK.scene.children, true)
+              .filter(h => !h.object.userData.noRay && !loose(h.object))[0];
             checked++;
             if (hit && hit.distance < 1.25) bad.push(k + ' ' + o.wall + ' @' + y + ' hit at ' + hit.distance.toFixed(2));
           }
@@ -165,7 +175,7 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
     // --- portals -----------------------------------------------------------
     const port = await p.evaluate(() => {
       if (!VK.PORTALS.length) return { none: true };
-      const a = VK.PORTALS[0], bq = a.other;
+      const a = (VK.PORTALS.find(q => q.pos.y < 2) || VK.PORTALS[0]), bq = a.other;
       const before = a.pos.clone();
       // stand a metre in front of face A, facing it, and walk
       const p0 = a.pos.clone().addScaledVector(a.normal, 1.1);
@@ -181,6 +191,44 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
     else {
       assert(port.dFromB < 4.0, 'walking into a portal puts you at its far side (' + port.dFromB.toFixed(2) + 'm from it)');
       assert(port.space === port.target, 'and in the room that door opens onto (' + port.space + ')');
+    }
+
+    // --- you climb the stairs and arrive on the ground floor (E3) ------------
+    const stairs = await p.evaluate(() => {
+      const key = VK.stats.stairwell;
+      if (!key) return { none: true };
+      const sp = VK.spaces[key], st = sp.stairs;
+      const [W, , D] = sp.size, [ox, oz] = sp.origin;
+      const n = { north: [0, 0, 1], south: [0, 0, -1], west: [1, 0, 0], east: [-1, 0, 0] }[st.wall];
+      let wx, wz;
+      if (st.wall === 'north') { wx = ox + st.at; wz = oz - D / 2; }
+      else if (st.wall === 'south') { wx = ox + st.at; wz = oz + D / 2; }
+      else if (st.wall === 'west') { wx = ox - W / 2; wz = oz + st.at; }
+      else { wx = ox + W / 2; wz = oz + st.at; }
+
+      // stand at the foot of the flight, face the head of it, and walk
+      const out = st.landing + st.run - 0.4;
+      VK.go(wx + n[0] * out, 0.36, wz + n[2] * out, Math.atan2(n[0], n[2]), 0);
+      VK.tick(40);
+      let highest = 0, leftAt = null;
+      VK.press('KeyW', true);
+      for (let i = 0; i < 200; i++) {
+        VK.tick(2);
+        const pl = VK.player();
+        highest = Math.max(highest, pl.pos[1]);
+        if (pl.space !== key) { leftAt = { space: pl.space, y: pl.pos[1] }; break; }
+        if (pl.pos[1] < -0.5) break;
+      }
+      VK.press('KeyW', false);
+      return { key, top: st.top, highest, leftAt };
+    });
+    if (!stairs.none) {
+      assert(stairs.highest > stairs.top - 0.4,
+        'you can walk up the stairs (' + stairs.highest.toFixed(2) + 'm of a ' + stairs.top + 'm climb)');
+      assert(stairs.leftAt !== null && stairs.leftAt.space !== stairs.key,
+        'and out through the door at the top of them' + (stairs.leftAt ? ' into ' + stairs.leftAt.space : ''));
+      if (stairs.leftAt) assert(stairs.leftAt.y < 1.0,
+        'and you are on the ground floor again, having gone up (y=' + stairs.leftAt.y.toFixed(2) + ')');
     }
 
     // --- the window, and what is not outside it (E2) -------------------------
@@ -373,7 +421,7 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
     const sides = await p.evaluate(() => {
       if (!VK.PORTALS.length) return { none: true };
       const T = VK.THREE;
-      const a = VK.PORTALS[0];
+      const a = (VK.PORTALS.find(q => q.pos.y < 2) || VK.PORTALS[0]);
       const p0 = a.pos.clone().addScaledVector(a.normal, 1.2);
       VK.go(p0.x, 0.36, p0.z);
       VK.aimAt(a.pos.x, 0.36 + 1.28, a.pos.z);
@@ -397,7 +445,7 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
     const stale = await p.evaluate(async () => {
       if (!VK.PORTALS.length) return { none: true };
       const raf = () => new Promise(r => requestAnimationFrame(() => r()));
-      const a = VK.PORTALS[0];
+      const a = (VK.PORTALS.find(q => q.pos.y < 2) || VK.PORTALS[0]);
       const look = at => {
         VK.go(at.x, 0.36, at.z, Math.atan2(-(a.pos.x - at.x), -(a.pos.z - at.z)), 0);
         VK.tick(2);
@@ -423,7 +471,7 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
       if (!VK.PORTALS.length) return { none: true };
       const T = VK.THREE;
       const raf = () => new Promise(r => requestAnimationFrame(() => r()));
-      const a = VK.PORTALS[0];
+      const a = (VK.PORTALS.find(q => q.pos.y < 2) || VK.PORTALS[0]);
       const grabs = [];
       VK.scene.traverse(o => { if (o.userData && o.userData.grabbable) grabs.push(o); });
       const stand = a.pos.clone().addScaledVector(a.normal, 2.6);
@@ -479,7 +527,7 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
     const obj = await p.evaluate(() => {
       if (!VK.PORTALS.length) return { none: true };
       const T = VK.THREE;
-      const a = VK.PORTALS[0];
+      const a = (VK.PORTALS.find(q => q.pos.y < 2) || VK.PORTALS[0]);
       const drawn = o => { let x = o; while (x) { if (!x.visible) return false; x = x.parent; } return true; };
 
       // a body of our own choosing, put in front of the face and pushed through,
@@ -514,7 +562,7 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
       const T = VK.THREE;
       const raf = () => new Promise(r => requestAnimationFrame(() => r()));
       const drawn = o => { let x = o; while (x) { if (!x.visible) return false; x = x.parent; } return true; };
-      const a = VK.PORTALS[0];
+      const a = (VK.PORTALS.find(q => q.pos.y < 2) || VK.PORTALS[0]);
       const grabs = [];
       VK.scene.traverse(o => { if (o.userData && o.userData.grabbable) grabs.push(o); });
       const stand = a.pos.clone().addScaledVector(a.normal, 2.4);

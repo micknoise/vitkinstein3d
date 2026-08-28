@@ -134,7 +134,8 @@ so none of this quietly comes undone.
 
 - Portals are single-bounce: one seen through another renders black.
 - Doors are animated rather than simulated; a leaf stops being solid the moment it moves.
-- One storey, axis-aligned rooms. The impossibility is entirely in the portals.
+- One storey, axis-aligned rooms. There are stairs, but no upstairs — the door at the top of a
+  flight is a portal back to the ground floor.
 - No inventory and no gating yet: everything is takeable and nothing is required.
 - Sound is monophonic — the distant thump is distant in timbre only.
 

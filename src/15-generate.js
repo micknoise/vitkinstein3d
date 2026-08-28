@@ -13,12 +13,12 @@
 // on top of where you are standing.
 // ---------------------------------------------------------------------------
 
-let SPACES = {}, SPACE_ORDER = [], START = null, PORTAL_LINKS = [], LOOP_CORRIDOR = null, WINDOW_AT = null;
+let SPACES = {}, SPACE_ORDER = [], START = null, PORTAL_LINKS = [], LOOP_CORRIDOR = null, WINDOW_AT = null, STAIRWELL = null;
 
 const OPP = { north: 'south', south: 'north', east: 'west', west: 'east' };
 
 function generateBuilding() {
-  SPACES = {}; SPACE_ORDER = []; PORTAL_LINKS = []; LOOP_CORRIDOR = null; WINDOW_AT = null;
+  SPACES = {}; SPACE_ORDER = []; PORTAL_LINKS = []; LOOP_CORRIDOR = null; WINDOW_AT = null; STAIRWELL = null;
   const rooms = [];        // {key, type, ox, oz, W, H, D, walls:{}}
   let counter = 0;
 
@@ -142,6 +142,84 @@ function generateBuilding() {
     const hasDoor = rchance(ROOM_TYPES[typeKey].corridor || ROOM_TYPES[parent.type].corridor ? 0.55 : 0.85);
     SPACES[parent.key].openings.push({ wall: side, at: +pAt.toFixed(2), w: +doorW.toFixed(2), h: +h.toFixed(2), door: hasDoor });
     SPACES[child.key].openings.push({ wall: OPP[side], at: +cAt.toFixed(2), w: +doorW.toFixed(2), h: +h.toFixed(2) });
+  }
+
+  // --- E3: stairs that arrive on the ground floor --------------------------
+  // A stairwell is an ordinary room with an ordinary door at the bottom. Three
+  // metres up at the head of the flight there is another door, and that one is
+  // a portal to a door on the ground floor somewhere else in the house. You go
+  // up and you come out downstairs. The engine never learns what a storey is.
+  {
+    const t = ROOM_TYPES.stairwell, doorH = 2.05, doorW = 0.95;
+    const parents = rshuffle(rooms.filter(r => Object.values(r.walls).some(v => v === 0)));
+    placingStairs:
+    for (const parent of parents) {
+      for (const side of rshuffle(['north', 'south', 'east', 'west']).filter(x => parent.walls[x] === 0)) {
+        const alongX = (side === 'east' || side === 'west');
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const long = rr(t.d[0], t.d[1]), narrow = rr(t.w[0], t.w[1]);
+          // the flight runs away from the wall it joins by
+          const W = alongX ? long : narrow, D = alongX ? narrow : long;
+          const H = +rr(t.h[0], t.h[1]).toFixed(2);
+          const dW = Math.min(doorW, (alongX ? Math.min(parent.D, D) : Math.min(parent.W, W)) - 0.9);
+          if (dW < 0.75) continue;
+
+          const limit = Math.max(0, Math.min(alongX ? parent.D : parent.W, alongX ? D : W) / 2 - dW / 2 - 0.3);
+          const slide = rr(-limit, limit);
+          let ox, oz;
+          if (alongX) {
+            ox = parent.ox + (side === 'east' ? 1 : -1) * (parent.W + W) / 2;
+            oz = parent.oz + slide;
+          } else {
+            oz = parent.oz + (side === 'north' ? -1 : 1) * (parent.D + D) / 2;
+            ox = parent.ox + slide;
+          }
+          if (overlaps(ox, oz, +W.toFixed(2), +D.toFixed(2))) continue;
+
+          const child = addRoom('stairwell', ox, oz, +W.toFixed(2), H, +D.toFixed(2));
+          // The stairwell sits on the `side` side of its parent, so the wall it
+          // joins by is OPP[side] -- the same way round as the grow loop does
+          // it. The head of the flight is then the far end, which is `side`.
+          const inWall = OPP[side], headWall = side;
+          const topSill = 3.0, topH = topSill + doorH;
+          if (topH > H - 0.3) { rooms.pop(); SPACE_ORDER.pop(); delete SPACES[child.key]; continue; }
+
+          // somewhere on the ground floor for it to come out
+          let out = null;
+          for (const cand of rshuffle(rooms.filter(r => r !== child && r.type !== 'warehouse'))) {
+            const found = findPortalWall(cand, doorW);
+            if (found) { out = { r: cand, found }; break; }
+          }
+          if (!out) { rooms.pop(); SPACE_ORDER.pop(); delete SPACES[child.key]; continue; }
+
+          parent.walls[side] = 1; child.walls[inWall] = 1;
+          const doorWorld = alongX ? oz : ox;
+          const pAt = doorWorld - (alongX ? parent.oz : parent.ox);
+          const h = Math.min(2.05, Math.min(parent.H, H) - 0.45);
+          SPACES[parent.key].openings.push({ wall: side, at: +pAt.toFixed(2), w: +dW.toFixed(2), h: +h.toFixed(2), door: rchance(0.7) });
+          SPACES[child.key].openings.push({ wall: inWall, at: 0, w: +dW.toFixed(2), h: +h.toFixed(2) });
+
+          // the door at the top, three metres up
+          child.walls[headWall] = 7;
+          SPACES[child.key].openings.push({ wall: headWall, at: 0, w: doorW, h: topH, sill: topSill, portal: true });
+          out.r.walls[out.found.side] = 7;
+          SPACES[out.r.key].openings.push({ wall: out.found.side, at: out.found.at, w: doorW, h: doorH, portal: true });
+          PORTAL_LINKS.push({
+            a: { space: child.key, wall: headWall, at: 0, w: doorW, h: topH, sill: topSill },
+            b: { space: out.r.key, wall: out.found.side, at: out.found.at, w: doorW, h: doorH }
+          });
+
+          // and the flight itself, for the builder
+          SPACES[child.key].stairs = {
+            wall: headWall, at: 0, top: topSill,
+            landing: 1.25, run: (alongX ? W : D) - 1.25 - 0.7,
+            width: Math.min(1.15, (alongX ? D : W) / 2 - 0.25)
+          };
+          STAIRWELL = child.key;
+          break placingStairs;
+        }
+      }
+    }
   }
 
   // --- E2: a window, onto nothing -----------------------------------------
@@ -331,7 +409,7 @@ function generateBuilding() {
 
   // --- light and furnish ---------------------------------------------------
   for (const r of rooms) { lightRoom(r); dressRoom(r); }
-  return { seed: SEED, rooms: rooms.length, portals: PORTAL_LINKS.length, loopCorridor: LOOP_CORRIDOR, window: WINDOW_AT };
+  return { seed: SEED, rooms: rooms.length, portals: PORTAL_LINKS.length, loopCorridor: LOOP_CORRIDOR, window: WINDOW_AT, stairwell: STAIRWELL };
 }
 
 // --- lighting ---------------------------------------------------------------

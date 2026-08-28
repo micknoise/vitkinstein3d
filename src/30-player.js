@@ -13,6 +13,21 @@ let hoverTarget = null;
 const lastGood = { x: 0, z: 0 };
 let lastGoodSpace = null;
 
+// Are you standing on anything? This used to be `position.y < 0.42`, which is
+// another way of saying "is the player on the ground floor" -- true of every
+// room in the building until one of them had stairs in it. Off the ground you
+// had almost no control authority (0.03 against 0.22) and could not jump, so a
+// staircase was unclimbable. The contacts know the answer for any height.
+function onSomething() {
+  if (playerBody.position.y < 0.42) return true;          // the usual case, free
+  for (const c of world.contacts) {
+    // ni points from bi to bj; the ground is whichever way is down from you
+    if (c.bi === playerBody) { if (c.ni.y < -0.5) return true; }
+    else if (c.bj === playerBody) { if (c.ni.y > 0.5) return true; }
+  }
+  return false;
+}
+
 const EYE = 1.28;          // camera height above the body centre
 const WALK = 2.15;         // deliberately slow. the slowness is the game.
 const RUN = 3.5;
@@ -217,7 +232,7 @@ function updatePlayer(dt) {
   const wx = fx * cos + fz * sin;
   const wz = -fx * sin + fz * cos;
 
-  grounded = playerBody.position.y < 0.42;
+  grounded = onSomething();
   const k = grounded ? 0.22 : 0.03;
   playerBody.velocity.x += (wx * speed - playerBody.velocity.x) * k;
   playerBody.velocity.z += (wz * speed - playerBody.velocity.z) * k;

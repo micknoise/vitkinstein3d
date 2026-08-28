@@ -62,15 +62,22 @@ const PORTAL_FRAG = `
   }`;
 
 // Where a portal face sits, given the space it is cut into.
-function portalFrame(spaceKey, wall, at, w, h) {
+// `h` is the top of the opening and `sill` its bottom, so a portal at the head
+// of a staircase sits three metres up and is otherwise an ordinary portal. The
+// transform between two faces is rigid, which is the whole trick: walk through
+// one at the top of the stairs into one at ground level and you keep your
+// height above the floor rather than your height above the world -- you do not
+// fall, and you do not notice you have been put back downstairs.
+function portalFrame(spaceKey, wall, at, w, h, sill) {
   const def = SPACES[spaceKey];
   const [W, H, D] = def.size, [ox, oz] = def.origin;
+  const y = ((sill || 0) + h) / 2, hh = h - (sill || 0);
   let pos, yaw;
-  if (wall === 'north') { pos = [ox + at, h / 2, oz - D / 2 + WALL_T / 2]; yaw = 0; }
-  else if (wall === 'south') { pos = [ox + at, h / 2, oz + D / 2 - WALL_T / 2]; yaw = Math.PI; }
-  else if (wall === 'west') { pos = [ox - W / 2 + WALL_T / 2, h / 2, oz + at]; yaw = Math.PI / 2; }
-  else { pos = [ox + W / 2 - WALL_T / 2, h / 2, oz + at]; yaw = -Math.PI / 2; }
-  return { pos, yaw, w, h, space: spaceKey };
+  if (wall === 'north') { pos = [ox + at, y, oz - D / 2 + WALL_T / 2]; yaw = 0; }
+  else if (wall === 'south') { pos = [ox + at, y, oz + D / 2 - WALL_T / 2]; yaw = Math.PI; }
+  else if (wall === 'west') { pos = [ox - W / 2 + WALL_T / 2, y, oz + at]; yaw = Math.PI / 2; }
+  else { pos = [ox + W / 2 - WALL_T / 2, y, oz + at]; yaw = -Math.PI / 2; }
+  return { pos, yaw, w, h: hh, space: spaceKey };
 }
 
 function buildPortals() {
@@ -81,8 +88,8 @@ function buildPortals() {
   portalCam = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.05, 120);
 
   for (const link of PORTAL_LINKS) {
-    const fa = portalFrame(link.a.space, link.a.wall, link.a.at, link.a.w, link.a.h);
-    const fb = portalFrame(link.b.space, link.b.wall, link.b.at, link.b.w, link.b.h);
+    const fa = portalFrame(link.a.space, link.a.wall, link.a.at, link.a.w, link.a.h, link.a.sill);
+    const fb = portalFrame(link.b.space, link.b.wall, link.b.at, link.b.w, link.b.h, link.b.sill);
     const A = makeFace(fa), B = makeFace(fb);
     A.other = B; B.other = A;
     PORTALS.push(A, B);
