@@ -110,6 +110,12 @@ const SOUND_OF = {
   plaster: 'stone', cream: 'stone', concrete: 'stone', concreteWall: 'stone',
   brick: 'stone', tile: 'ceramic', red: 'ceramic'
 };
+// Some things do not sound like what they are made of. A brick is drawn with
+// the rust texture because it is the right colour, and a mug is drawn with the
+// plastic one; neither is a statement about what they do when you drop them.
+// Anything in here overrides the material.
+const SOUNDS_LIKE = {};
+
 function soundClass(obj3d) {
   let m = obj3d.material;
   if (!m && obj3d.children.length) m = obj3d.children[0].material;
@@ -121,7 +127,7 @@ function register(obj3d, body, mass) {
   obj3d.userData.body = body;
   body.threeObj = obj3d;
   if (mass > 0) {
-    body.sndClass = soundClass(obj3d);
+    body.sndClass = obj3d.userData.snd || soundClass(obj3d);
     // the longest side, which is what sets the pitch of the ring
     const sh = body.shapes[0];
     body.sndSize = sh && sh.halfExtents ? 2 * Math.max(sh.halfExtents.x, sh.halfExtents.y, sh.halfExtents.z)
@@ -149,6 +155,7 @@ function mkBox(w, h, d, mat, pos, rotY, mass, opts) {
   mesh.rotation.y = rotY || 0;
   mesh.castShadow = opts.cast !== false;
   mesh.receiveShadow = true;
+  if (opts.snd) mesh.userData.snd = opts.snd;
   attach(mesh);
   if (opts.noPhysics) return { mesh };
   const body = new CANNON.Body({ mass: mass || 0, material: PHYS.obj });
@@ -167,6 +174,7 @@ function mkCyl(rt, rb, h, seg, mat, pos, mass, opts) {
   const mesh = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, seg), mat);
   mesh.position.set(pos[0], pos[1], pos[2]);
   mesh.castShadow = true; mesh.receiveShadow = true;
+  if (opts.snd) mesh.userData.snd = opts.snd;
   attach(mesh);
   if (opts.noPhysics) return { mesh };
   const body = new CANNON.Body({ mass: mass || 0, material: PHYS.obj });
@@ -1122,7 +1130,7 @@ const PROPS = {
   // --- things you can pick up ---------------------------------------------
 
   box:   ({ x, z, y, rot }) => { const s = rr(0.2, 0.32); mkBox(s, s * 0.8, s * 0.9, MAT.card, [x, (y || 0) + s * 0.4 + 0.01, z], rot || rr(0, 6.28), 1.2); },
-  brick: ({ x, z, y, rot }) => mkBox(0.21, 0.09, 0.1, MAT.rust, [x, (y || 0) + 0.05, z], rot || rr(0, 6.28), 2.4),
+  brick: ({ x, z, y, rot }) => mkBox(0.21, 0.09, 0.1, MAT.rust, [x, (y || 0) + 0.05, z], rot || rr(0, 6.28), 2.4, { snd: 'stone' }),
   plank: ({ x, z, y, rot }) => mkBox(0.9, 0.035, 0.14, MAT.woodLight, [x, (y || 0) + 0.02, z], rot || rr(0, 6.28), 1.6),
   book:  ({ x, z, y, rot }) => {
     const m = new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(rr(0, 0.12), 0.35, rr(0.12, 0.3)), roughness: 0.95 });
@@ -1137,13 +1145,14 @@ const PROPS = {
   jar: ({ x, z, y }) => mkCyl(0.055, 0.055, 0.14, 12, MAT.glass, [x, (y || 0) + 0.07, z], 0.6),
   tin: ({ x, z, y }) => mkCyl(0.043, 0.043, 0.11, 12, MAT.metal, [x, (y || 0) + 0.055, z], 0.5),
   mug: ({ x, z, y }) => {
-    const c = mkCyl(0.042, 0.036, 0.095, 12, MAT.plastic, [x, (y || 0) + 0.048, z], 0.35);
+    const c = mkCyl(0.042, 0.036, 0.095, 12, MAT.plastic, [x, (y || 0) + 0.048, z], 0.35, { snd: 'ceramic' });
     const h = new THREE.Mesh(new THREE.TorusGeometry(0.028, 0.008, 5, 10, Math.PI * 1.4), MAT.plastic);
     h.position.set(0.048, 0, 0); h.rotation.y = Math.PI / 2; c.mesh.add(h);
   },
   ball: ({ x, z, y }) => {
     const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.075, 16, 12), MAT.red);
     mesh.position.set(x, (y || 0) + 0.08, z); mesh.castShadow = true; mesh.receiveShadow = true;
+    mesh.userData.snd = 'soft';                 // it is a ball, not a saucer
     attach(mesh);
     const body = new CANNON.Body({ mass: 0.5, material: PHYS.bouncy });
     body.addShape(new CANNON.Sphere(0.075));

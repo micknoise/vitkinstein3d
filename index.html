@@ -14627,6 +14627,12 @@ const SOUND_OF = {
   plaster: 'stone', cream: 'stone', concrete: 'stone', concreteWall: 'stone',
   brick: 'stone', tile: 'ceramic', red: 'ceramic'
 };
+// Some things do not sound like what they are made of. A brick is drawn with
+// the rust texture because it is the right colour, and a mug is drawn with the
+// plastic one; neither is a statement about what they do when you drop them.
+// Anything in here overrides the material.
+const SOUNDS_LIKE = {};
+
 function soundClass(obj3d) {
   let m = obj3d.material;
   if (!m && obj3d.children.length) m = obj3d.children[0].material;
@@ -14638,7 +14644,7 @@ function register(obj3d, body, mass) {
   obj3d.userData.body = body;
   body.threeObj = obj3d;
   if (mass > 0) {
-    body.sndClass = soundClass(obj3d);
+    body.sndClass = obj3d.userData.snd || soundClass(obj3d);
     // the longest side, which is what sets the pitch of the ring
     const sh = body.shapes[0];
     body.sndSize = sh && sh.halfExtents ? 2 * Math.max(sh.halfExtents.x, sh.halfExtents.y, sh.halfExtents.z)
@@ -14666,6 +14672,7 @@ function mkBox(w, h, d, mat, pos, rotY, mass, opts) {
   mesh.rotation.y = rotY || 0;
   mesh.castShadow = opts.cast !== false;
   mesh.receiveShadow = true;
+  if (opts.snd) mesh.userData.snd = opts.snd;
   attach(mesh);
   if (opts.noPhysics) return { mesh };
   const body = new CANNON.Body({ mass: mass || 0, material: PHYS.obj });
@@ -14684,6 +14691,7 @@ function mkCyl(rt, rb, h, seg, mat, pos, mass, opts) {
   const mesh = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, seg), mat);
   mesh.position.set(pos[0], pos[1], pos[2]);
   mesh.castShadow = true; mesh.receiveShadow = true;
+  if (opts.snd) mesh.userData.snd = opts.snd;
   attach(mesh);
   if (opts.noPhysics) return { mesh };
   const body = new CANNON.Body({ mass: mass || 0, material: PHYS.obj });
@@ -15639,7 +15647,7 @@ const PROPS = {
   // --- things you can pick up ---------------------------------------------
 
   box:   ({ x, z, y, rot }) => { const s = rr(0.2, 0.32); mkBox(s, s * 0.8, s * 0.9, MAT.card, [x, (y || 0) + s * 0.4 + 0.01, z], rot || rr(0, 6.28), 1.2); },
-  brick: ({ x, z, y, rot }) => mkBox(0.21, 0.09, 0.1, MAT.rust, [x, (y || 0) + 0.05, z], rot || rr(0, 6.28), 2.4),
+  brick: ({ x, z, y, rot }) => mkBox(0.21, 0.09, 0.1, MAT.rust, [x, (y || 0) + 0.05, z], rot || rr(0, 6.28), 2.4, { snd: 'stone' }),
   plank: ({ x, z, y, rot }) => mkBox(0.9, 0.035, 0.14, MAT.woodLight, [x, (y || 0) + 0.02, z], rot || rr(0, 6.28), 1.6),
   book:  ({ x, z, y, rot }) => {
     const m = new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(rr(0, 0.12), 0.35, rr(0.12, 0.3)), roughness: 0.95 });
@@ -15654,13 +15662,14 @@ const PROPS = {
   jar: ({ x, z, y }) => mkCyl(0.055, 0.055, 0.14, 12, MAT.glass, [x, (y || 0) + 0.07, z], 0.6),
   tin: ({ x, z, y }) => mkCyl(0.043, 0.043, 0.11, 12, MAT.metal, [x, (y || 0) + 0.055, z], 0.5),
   mug: ({ x, z, y }) => {
-    const c = mkCyl(0.042, 0.036, 0.095, 12, MAT.plastic, [x, (y || 0) + 0.048, z], 0.35);
+    const c = mkCyl(0.042, 0.036, 0.095, 12, MAT.plastic, [x, (y || 0) + 0.048, z], 0.35, { snd: 'ceramic' });
     const h = new THREE.Mesh(new THREE.TorusGeometry(0.028, 0.008, 5, 10, Math.PI * 1.4), MAT.plastic);
     h.position.set(0.048, 0, 0); h.rotation.y = Math.PI / 2; c.mesh.add(h);
   },
   ball: ({ x, z, y }) => {
     const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.075, 16, 12), MAT.red);
     mesh.position.set(x, (y || 0) + 0.08, z); mesh.castShadow = true; mesh.receiveShadow = true;
+    mesh.userData.snd = 'soft';                 // it is a ball, not a saucer
     attach(mesh);
     const body = new CANNON.Body({ mass: 0.5, material: PHYS.bouncy });
     body.addShape(new CANNON.Sphere(0.075));
@@ -16717,14 +16726,7 @@ const Audio = (() => {
   function start() {
     if (ctx) return;
     ctx = new (window.AudioContext || window.webkitAudioContext)();
-    master = ctx.createGain(); master.gain.value = 0.9; master.connect(ctx.destination);
-
-    const src = ctx.createBufferSource();
-    src.buffer = noiseBuffer(6); src.loop = true;
-    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 320; lp.Q.value = 0.6;
-    toneGain = ctx.createGain(); toneGain.gain.value = 0.09;
-    src.connect(lp); lp.connect(toneGain); toneGain.connect(master);
-    src.start();
+    master = ctx.createGain(); master.gain.value = 0.62; master.connect(ctx.destination);
 
     renderSFX();
     scheduleFar();
@@ -16878,26 +16880,26 @@ const Audio = (() => {
     // a half down, the tail nearly three times longer, and a lot more grit --
     // "a glockenspiel without the decay" is what you get from clean high
     // partials that stop before they have rung.
-    SFX.metal = make(3, 1.30, (d, sr, v) => {
-      fizz(d, 0.55, 70, sr, 5200, true);
-      tone(d, 86 * (1 + v * 0.09), 0.34, 2.6, sr, 0.03);
-      tone(d, 174 * (1 + v * 0.11), 0.30, 1.9, sr);
-      tone(d, 391 * (1 + v * 0.07), 0.22, 2.4, sr);
-      tone(d, 707 * (1 + v * 0.05), 0.13, 3.1, sr);
-      tone(d, 1120 * (1 + v * 0.04), 0.07, 4.2, sr);
+    SFX.metal = make(3, 0.70, (d, sr, v) => {
+      fizz(d, 0.62, 110, sr, 4200, true);
+      tone(d, 86 * (1 + v * 0.09), 0.26, 7, sr, 0.03);
+      tone(d, 174 * (1 + v * 0.11), 0.17, 6, sr);
+      tone(d, 391 * (1 + v * 0.07), 0.10, 8, sr);
+      tone(d, 707 * (1 + v * 0.05), 0.05, 11, sr);
     });
     // a chink.
-    SFX.glass = make(3, 0.45, (d, sr, v) => {
-      fizz(d, 0.30, 500, sr, 12000, true);
-      tone(d, 2100 * (1 + v * 0.09), 0.30, 9, sr);
-      tone(d, 3350 * (1 + v * 0.06), 0.18, 12, sr);
-      tone(d, 890 * (1 + v * 0.07), 0.16, 11, sr);
+    // A bottle put down on tile is a short chink, not a struck bell. The
+    // partials are brief and the noise carries it.
+    SFX.glass = make(3, 0.22, (d, sr, v) => {
+      fizz(d, 0.66, 300, sr, 5200, true);
+      tone(d, 860 * (1 + v * 0.09), 0.14, 46, sr);
+      tone(d, 1420 * (1 + v * 0.06), 0.07, 60, sr);
     });
     // a clonk. Mugs, jars, tins.
-    SFX.ceramic = make(3, 0.38, (d, sr, v) => {
-      fizz(d, 0.55, 240, sr, 4600, true);
-      tone(d, 470 * (1 + v * 0.1), 0.30, 12, sr, 0.04);
-      tone(d, 980 * (1 + v * 0.07), 0.14, 17, sr);
+    SFX.ceramic = make(3, 0.20, (d, sr, v) => {
+      fizz(d, 0.62, 300, sr, 4200, true);
+      tone(d, 420 * (1 + v * 0.1), 0.20, 40, sr, 0.05);
+      tone(d, 870 * (1 + v * 0.07), 0.08, 55, sr);
     });
     // a thud, with nothing ringing at all.
     SFX.stone = make(3, 0.22, (d, sr, v) => {
@@ -16909,6 +16911,10 @@ const Audio = (() => {
       fizz(d, 0.55, 300, sr, 900 + v * 250);
       tone(d, 74, 0.30, 40, sr, 0.25);
     });
+
+    // the click of taking hold of something, or letting go. Two milliseconds
+    // of nothing in particular.
+    SFX.click = make(3, 0.05, (d, sr, v) => { fizz(d, 0.30, 900, sr, 2400 + v * 900, true); tone(d, 120, 0.10, 120, sr, 0.3); });
 
     // feet, by what is underfoot
     SFX.carpet = make(3, 0.16, (d, sr, v) => { fizz(d, 0.34, 340, sr, 1100 + v * 200); tone(d, 88, 0.20, 46, sr, 0.2); });
@@ -16970,8 +16976,10 @@ const Audio = (() => {
     start,
     // A footstep on carpet is not a footstep on concrete, and the room already
     // knows which it is standing on.
-    step: (floor) => play(SFX[floor] || SFX.tile, 0.5, 0.92 + Math.random() * 0.16),
-    blip: (f, d, g) => burst(f, d, g),
+    step: (floor) => play(SFX[floor] || SFX.tile, 0.30, 0.92 + Math.random() * 0.16),
+    // A click. It used to be a tuned burst, which at 320Hz is a ping -- and a
+    // ping is a notification sound, which this game does not have.
+    blip: (f, d, g) => play(SFX.click, Math.min(0.5, (g || 0.05) * 3.2), 0.85 + Math.random() * 0.3),
     impact: (v, mass, at, cls, size) => {
       if (!ctx) return;
       const now = ctx.currentTime;
@@ -16983,12 +16991,15 @@ const Audio = (() => {
       // they were drawn at, which is most of why everything sounded like a toy.
       const bulk = Math.min(1.5, Math.max(0.15, (size || 0.3) + mass * 0.3));
       const r = (1.12 - (bulk - 0.15) * 0.31) * (0.95 + Math.random() * 0.10);
-      play(SFX[cls] || SFX.wood, Math.min(0.75, 0.16 + 0.75 * hit * hit), Math.max(0.60, Math.min(1.18, r)), at);
+      play(SFX[cls] || SFX.wood, Math.min(0.46, 0.07 + 0.44 * hit * hit), Math.max(0.60, Math.min(1.18, r)), at);
     },
     listen,
     // the sound of the room changing behind you
-    through: () => play(SFX.through, 0.55, 0.96 + Math.random() * 0.08),
-    setTone: (v) => { if (toneGain) toneGain.gain.value = v; },
+    through: () => play(SFX.through, 0.38, 0.96 + Math.random() * 0.08),
+    // The room tone has gone the way of the hum: it was noise under everything,
+    // all the time, and it was the thing you could hear when nothing was
+    // happening. Kept as a no-op so the caller does not have to care.
+    setTone: () => {},
     occlusion,
     get sfx() { return SFX; }
   };

@@ -19,14 +19,7 @@ const Audio = (() => {
   function start() {
     if (ctx) return;
     ctx = new (window.AudioContext || window.webkitAudioContext)();
-    master = ctx.createGain(); master.gain.value = 0.9; master.connect(ctx.destination);
-
-    const src = ctx.createBufferSource();
-    src.buffer = noiseBuffer(6); src.loop = true;
-    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 320; lp.Q.value = 0.6;
-    toneGain = ctx.createGain(); toneGain.gain.value = 0.09;
-    src.connect(lp); lp.connect(toneGain); toneGain.connect(master);
-    src.start();
+    master = ctx.createGain(); master.gain.value = 0.62; master.connect(ctx.destination);
 
     renderSFX();
     scheduleFar();
@@ -180,26 +173,26 @@ const Audio = (() => {
     // a half down, the tail nearly three times longer, and a lot more grit --
     // "a glockenspiel without the decay" is what you get from clean high
     // partials that stop before they have rung.
-    SFX.metal = make(3, 1.30, (d, sr, v) => {
-      fizz(d, 0.55, 70, sr, 5200, true);
-      tone(d, 86 * (1 + v * 0.09), 0.34, 2.6, sr, 0.03);
-      tone(d, 174 * (1 + v * 0.11), 0.30, 1.9, sr);
-      tone(d, 391 * (1 + v * 0.07), 0.22, 2.4, sr);
-      tone(d, 707 * (1 + v * 0.05), 0.13, 3.1, sr);
-      tone(d, 1120 * (1 + v * 0.04), 0.07, 4.2, sr);
+    SFX.metal = make(3, 0.70, (d, sr, v) => {
+      fizz(d, 0.62, 110, sr, 4200, true);
+      tone(d, 86 * (1 + v * 0.09), 0.26, 7, sr, 0.03);
+      tone(d, 174 * (1 + v * 0.11), 0.17, 6, sr);
+      tone(d, 391 * (1 + v * 0.07), 0.10, 8, sr);
+      tone(d, 707 * (1 + v * 0.05), 0.05, 11, sr);
     });
     // a chink.
-    SFX.glass = make(3, 0.45, (d, sr, v) => {
-      fizz(d, 0.30, 500, sr, 12000, true);
-      tone(d, 2100 * (1 + v * 0.09), 0.30, 9, sr);
-      tone(d, 3350 * (1 + v * 0.06), 0.18, 12, sr);
-      tone(d, 890 * (1 + v * 0.07), 0.16, 11, sr);
+    // A bottle put down on tile is a short chink, not a struck bell. The
+    // partials are brief and the noise carries it.
+    SFX.glass = make(3, 0.22, (d, sr, v) => {
+      fizz(d, 0.66, 300, sr, 5200, true);
+      tone(d, 860 * (1 + v * 0.09), 0.14, 46, sr);
+      tone(d, 1420 * (1 + v * 0.06), 0.07, 60, sr);
     });
     // a clonk. Mugs, jars, tins.
-    SFX.ceramic = make(3, 0.38, (d, sr, v) => {
-      fizz(d, 0.55, 240, sr, 4600, true);
-      tone(d, 470 * (1 + v * 0.1), 0.30, 12, sr, 0.04);
-      tone(d, 980 * (1 + v * 0.07), 0.14, 17, sr);
+    SFX.ceramic = make(3, 0.20, (d, sr, v) => {
+      fizz(d, 0.62, 300, sr, 4200, true);
+      tone(d, 420 * (1 + v * 0.1), 0.20, 40, sr, 0.05);
+      tone(d, 870 * (1 + v * 0.07), 0.08, 55, sr);
     });
     // a thud, with nothing ringing at all.
     SFX.stone = make(3, 0.22, (d, sr, v) => {
@@ -211,6 +204,10 @@ const Audio = (() => {
       fizz(d, 0.55, 300, sr, 900 + v * 250);
       tone(d, 74, 0.30, 40, sr, 0.25);
     });
+
+    // the click of taking hold of something, or letting go. Two milliseconds
+    // of nothing in particular.
+    SFX.click = make(3, 0.05, (d, sr, v) => { fizz(d, 0.30, 900, sr, 2400 + v * 900, true); tone(d, 120, 0.10, 120, sr, 0.3); });
 
     // feet, by what is underfoot
     SFX.carpet = make(3, 0.16, (d, sr, v) => { fizz(d, 0.34, 340, sr, 1100 + v * 200); tone(d, 88, 0.20, 46, sr, 0.2); });
@@ -272,8 +269,10 @@ const Audio = (() => {
     start,
     // A footstep on carpet is not a footstep on concrete, and the room already
     // knows which it is standing on.
-    step: (floor) => play(SFX[floor] || SFX.tile, 0.5, 0.92 + Math.random() * 0.16),
-    blip: (f, d, g) => burst(f, d, g),
+    step: (floor) => play(SFX[floor] || SFX.tile, 0.30, 0.92 + Math.random() * 0.16),
+    // A click. It used to be a tuned burst, which at 320Hz is a ping -- and a
+    // ping is a notification sound, which this game does not have.
+    blip: (f, d, g) => play(SFX.click, Math.min(0.5, (g || 0.05) * 3.2), 0.85 + Math.random() * 0.3),
     impact: (v, mass, at, cls, size) => {
       if (!ctx) return;
       const now = ctx.currentTime;
@@ -285,12 +284,15 @@ const Audio = (() => {
       // they were drawn at, which is most of why everything sounded like a toy.
       const bulk = Math.min(1.5, Math.max(0.15, (size || 0.3) + mass * 0.3));
       const r = (1.12 - (bulk - 0.15) * 0.31) * (0.95 + Math.random() * 0.10);
-      play(SFX[cls] || SFX.wood, Math.min(0.75, 0.16 + 0.75 * hit * hit), Math.max(0.60, Math.min(1.18, r)), at);
+      play(SFX[cls] || SFX.wood, Math.min(0.46, 0.07 + 0.44 * hit * hit), Math.max(0.60, Math.min(1.18, r)), at);
     },
     listen,
     // the sound of the room changing behind you
-    through: () => play(SFX.through, 0.55, 0.96 + Math.random() * 0.08),
-    setTone: (v) => { if (toneGain) toneGain.gain.value = v; },
+    through: () => play(SFX.through, 0.38, 0.96 + Math.random() * 0.08),
+    // The room tone has gone the way of the hum: it was noise under everything,
+    // all the time, and it was the thing you could hear when nothing was
+    // happening. Kept as a no-op so the caller does not have to care.
+    setTone: () => {},
     occlusion,
     get sfx() { return SFX; }
   };
