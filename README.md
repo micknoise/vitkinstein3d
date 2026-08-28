@@ -99,6 +99,7 @@ build step for anyone who just wants to play it.
 | `src/20-build.js` | turns a plan into geometry and rigid bodies |
 | `src/25-portal.js` | portal rendering and traversal |
 | `src/30-player.js` | the body, the hands, the doors |
+| `src/35-video.js` | the tape: one full-screen pass, camera and VHS |
 | `src/40-main.js` | sound, screen, loop |
 | `shell.html` | the page the build is injected into |
 | `SPECIFICATION.md` | what it is meant to do, as a checklist someone can assess it against |
@@ -116,6 +117,14 @@ Every space is an interior except for one. Somewhere in each house there is a wi
 there is nothing — no ground, no sky, nothing to judge a distance against. The house stops at the
 glass. Daylight comes through it anyway, in a shaft down onto the floor, and nothing out there
 accounts for it.
+
+## Everything you see is footage
+
+The frame is not the render. The world is drawn into a target and the target is drawn onto the
+screen through a camera strapped to somebody's head and a tape that has been used before: a wide
+lens that bends the walls, scan lines, chroma that does not sit quite on the luma, interference that
+comes and goes, and the head-switching bar rolling up the picture every few seconds. 
+shows you the raw render.
 
 ## Keeping it fast
 

@@ -256,6 +256,7 @@ function init() {
 
   initPlayer();
   buildPortals();
+  initVideo();
   initPortalSides();
   buildRoomGraph();
   mergeStatics();
@@ -284,6 +285,7 @@ function init() {
     camera.updateProjectionMatrix();
     renderer.setSize(innerWidth, innerHeight);
     resizePortals();
+    resizeVideo();
   });
 
   const startGame = () => {
@@ -687,7 +689,8 @@ function animate() {
   updateRoomVisibility(shownPortals);
   renderPortals(shownPortals);
   updateLightPool(camera.position);
-  renderer.render(scene, camera);
+  // everything you see is footage; see 35-video.js
+  renderVideo(frozenAt !== null ? frozenAt : nowMs * 0.001);
 }
 
 // If the machine cannot hold the frame, give it fewer pixels rather than a
@@ -711,6 +714,7 @@ function adaptResolution(now) {
   renderer.setPixelRatio(pixelRatio);
   renderer.setSize(innerWidth, innerHeight);
   resizePortals();
+  resizeVideo();
 }
 
 let promptTimer = null;

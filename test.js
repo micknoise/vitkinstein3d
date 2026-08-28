@@ -193,6 +193,20 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
       assert(port.space === port.target, 'and in the room that door opens onto (' + port.space + ')');
     }
 
+    // --- everything you see is footage (the tape) ----------------------------
+    const tape = await p.evaluate(async () => {
+      const raf = () => new Promise(r => requestAnimationFrame(() => r()));
+      const gl = VK.renderer.getContext();
+      const before = VK.renderer.info.render.calls;
+      for (let i = 0; i < 3; i++) await raf();
+      // the pass draws the world into a target and the target onto the canvas,
+      // so the canvas is not what the scene was rendered into
+      const rt = VK.renderer.getRenderTarget();
+      return { onScreenAfterFrame: rt === null, lost: gl.isContextLost(), drew: VK.renderer.info.render.calls > before };
+    });
+    assert(tape.lost === false, 'the tape pass does not lose the context');
+    assert(tape.onScreenAfterFrame, 'and hands the canvas back when it has finished with it');
+
     // --- you climb the stairs and arrive on the ground floor (E3) ------------
     const stairs = await p.evaluate(() => {
       const key = VK.stats.stairwell;

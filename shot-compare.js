@@ -21,7 +21,10 @@ fs.mkdirSync(outDir, { recursive: true });
   const page = await browser.newPage({ viewport: { width: 800, height: 500 } });
   const errs = [];
   page.on('pageerror', e => errs.push('PAGEERROR: ' + e.message));
-  await page.goto('file://' + path.resolve(file) + '?seed=' + seed + extra);
+  // ?novhs=1: compare what was rendered, not what the tape did to it. The tape
+  // is deterministic under VK.freeze, but it barrel-distorts and adds grain,
+  // which blunts exactly the small differences this is here to catch.
+  await page.goto('file://' + path.resolve(file) + '?seed=' + seed + '&novhs=1' + extra);
   await page.waitForFunction(() => !!window.VK, null, { timeout: 90000 });
   await page.evaluate(() => {
     document.getElementById('title').style.display = 'none';

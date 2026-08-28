@@ -9,7 +9,7 @@ method, and it is where results get written down.
 ```sh
 npm install
 npm run build                 # src/ + three + cannon-es  ->  index.html
-npm test                      # 39 checks x 5 seeds, headless; must be green
+npm test                      # 41 checks x 5 seeds, headless; must be green
 npm test 424242               # one seed
 npm run perf                  # draw calls / triangles / lights per room
 npm run perf all              # ...across all five test seeds
@@ -37,6 +37,7 @@ scope and there are no imports. Load order matters.
 | `src/20-build.js` | plan → geometry, rigid bodies, light descriptions, room groups |
 | `src/25-portal.js` | portal rendering and traversal |
 | `src/30-player.js` | the body, the hands, the doors |
+| `src/35-video.js` | the tape: the whole frame, through a helmet camera |
 | `src/40-main.js` | sound, screen, the frame loop, the light pool, visibility |
 
 **Everything random must come from `05-rng.js`,** never `Math.random()`, or
@@ -73,7 +74,7 @@ generated building and a hand-written one are the same kind of thing.
 `spaces`, `count()`, `info()`, `PORTALS`, `renderer`.
 
 URL flags: `?seed=N`, `?perf=1`, `?pr=N` (pin pixel ratio), `?nograin=1`,
-`?nodrift=1` (stop rooms changing behind you, for a screenshot A/B).
+`?nodrift=1` (stop rooms changing behind you), `?novhs=1` (raw render, no tape).
 
 ## House rules
 
