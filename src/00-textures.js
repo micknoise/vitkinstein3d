@@ -427,6 +427,16 @@ function buildMaterials(rng) {
   MAT.plastic = new THREE.MeshStandardMaterial({ color: 0xb8b0a0, roughness: 0.6 });
   MAT.red     = new THREE.MeshStandardMaterial({ color: 0x8a2b22, roughness: 0.8 });
 
+  // A window. The glass is barely there -- enough of a sheen across it to read
+  // as a pane and to catch a lamp, not enough to hide what is not outside.
+  MAT.glass = new THREE.MeshStandardMaterial({
+    color: 0x8fa2ab, transparent: true, opacity: 0.13,
+    roughness: 0.06, metalness: 0.1, depthWrite: false, side: THREE.DoubleSide
+  });
+  // and what is not outside. Unlit, and the same colour as the fog it sits in,
+  // so it has no surface to read as a surface: the house simply stops.
+  MAT.nothing = new THREE.MeshBasicMaterial({ color: 0x0a0a0e, side: THREE.BackSide });   // exactly the fog
+
   // grime: several variants so neighbouring walls don't share one
   DECAL.grime = [];
   for (let i = 0; i < 4; i++) {

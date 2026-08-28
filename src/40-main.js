@@ -315,6 +315,7 @@ function init() {
     get allLights() { return allLights; },
     drift(key) { _visited.add(key); driftRoom(key); },
     get roomGroups() { return roomGroups; },
+    get roomGraph() { return roomGraph; },
     get bodyTraversals() { return bodyTraversals; },
     get bodyTraversals() { return bodyTraversals; },
     freeze(t) { frozenAt = t === undefined ? 12 : t; },

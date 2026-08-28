@@ -139,7 +139,9 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
       for (const [k, s] of Object.entries(VK.spaces)) {
         if (!s.dado && !s.skirting) continue;
         for (const o of s.openings) {
-          if (o.blocked) continue;
+          // a window is supposed to have wall under it -- that is the difference
+          // between a window and a doorway
+          if (o.blocked || o.window) continue;
           const [W, , D] = s.size, [ox, oz] = s.origin;
           let c, n;
           if (o.wall === 'north') { c = new T.Vector3(ox + o.at, 0, oz - D / 2); n = new T.Vector3(0, 0, -1); }
@@ -179,6 +181,47 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
     else {
       assert(port.dFromB < 4.0, 'walking into a portal puts you at its far side (' + port.dFromB.toFixed(2) + 'm from it)');
       assert(port.space === port.target, 'and in the room that door opens onto (' + port.space + ')');
+    }
+
+    // --- the window, and what is not outside it (E2) -------------------------
+    const win = await p.evaluate(() => {
+      const key = VK.stats.window;
+      if (!key) return { none: true };
+      const sp = VK.spaces[key];
+      const o = sp.openings.find(x => x.window);
+      if (!o) return { missing: true };
+      const [W, H, D] = sp.size, [ox, oz] = sp.origin;
+
+      // you must not be able to get out through it: there has to be wall under
+      // the sill, and glass in the hole
+      const T = VK.THREE;
+      let wx, wz, nx, nz;
+      if (o.wall === 'north') { wx = ox + o.at; wz = oz - D / 2; nx = 0; nz = 1; }
+      else if (o.wall === 'south') { wx = ox + o.at; wz = oz + D / 2; nx = 0; nz = -1; }
+      else if (o.wall === 'west') { wx = ox - W / 2; wz = oz + o.at; nx = 1; nz = 0; }
+      else { wx = ox + W / 2; wz = oz + o.at; nx = -1; nz = 0; }
+
+      const shoot = (y) => {
+        const from = new T.Vector3(wx + nx * 1.6, y, wz + nz * 1.6);
+        const rc = new T.Raycaster(from, new T.Vector3(-nx, 0, -nz), 0.01, 3.0);
+        const hit = rc.intersectObjects(VK.scene.children, true).filter(h => !h.object.userData.noRay)[0];
+        return hit ? +hit.distance.toFixed(2) : null;
+      };
+      // walk at the window and you hit the wall under it
+      VK.go(wx + nx * 2.2, 0.36, wz + nz * 2.2, Math.atan2(-nx, -nz), 0);
+      VK.tick(20);
+      VK.press('KeyW', true); VK.tick(150); VK.press('KeyW', false); VK.tick(10);
+      const pl = VK.player();
+      const outside = (pl.pos[0] - wx) * nx + (pl.pos[2] - wz) * nz;   // >0 is still inside
+
+      return { key, sill: o.sill, top: o.h,
+               belowSill: shoot(o.sill * 0.5), throughGlass: shoot((o.sill + o.h) / 2), outside };
+    });
+    if (!win.none && !win.missing) {
+      assert(win.sill > 0.5, 'the window has a sill to it, and is not a doorway (' + win.sill + 'm)');
+      assert(win.belowSill !== null && win.belowSill < 2.0, 'there is wall under it');
+      assert(win.throughGlass !== null && win.throughGlass < 2.0, 'and glass in it, so nothing goes out');
+      assert(win.outside > 0.2, 'and you cannot walk out through it (' + win.outside.toFixed(2) + 'm inside)');
     }
 
     // --- sound comes from where the thing happened (C2) ----------------------

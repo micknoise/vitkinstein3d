@@ -15,7 +15,7 @@ what would make us drop it.
 `main` is the only branch; local and `origin/main` agree, and the committed
 `index.html` is a faithful build of the committed `src/`.
 
-Verified on the current build, five seeds, headless: 35/35 checks pass —
+Verified on the current build, five seeds, headless: 39/39 checks pass —
 generation, no room overlaps, every room reachable, the body, the hands, doors,
 no trim across a doorway, portal traversal, objects and carried objects through
 portals, portal faces not showing stale views, objects settling, clean console.
@@ -355,7 +355,7 @@ badly; decals must stay separate (transparent, depth-sorted). Grabbable objects
 must stay individual — see §2.
 **Size.** Medium. Highest leverage in the document.
 
-### E2 · A window
+### E2 · A window — **done, 2026-08-28: onto nothing**
 Every space is an interior, so one window — onto a light well, onto brick, onto
 nothing at all — would be the loudest thing in the game. What is outside is a
 design question, not a technical one. Medium.
@@ -425,6 +425,7 @@ actual product of the plan.
 |---|---|---|---|
 | 2026-08-27 | **baseline — v0.2 as played** | works | Played on real hardware. Does what it is supposed to do; a genuinely weird experience. This is the control condition every later experiment is judged against — if a change makes it *more* interesting but *less* weird, it has failed. |
 | 2026-08-27 | **observed play loop** | finding | Players work out the architecture is impossible, then place objects in rooms as markers to tell whether they have been there, then realise what is happening. Undesigned and emergent. Recorded in full as §2; it reorders the plan, kills A3, and creates A4. |
+| 2026-08-28 | **E2 — a window, onto nothing** | **for Mick to judge** | Every space was an interior. One window per house now, and what is outside it is nothing: the house stops at the glass. Mick's call, taken against my noted objection that a void arguably explains the building — recorded because if it turns out to explain it away, that is the reason and not the execution. The work was not the view, it was the sill: *every* opening in this building ran from the floor up, so walls, linings and trim all had to learn about an opening with a bottom edge. Nothing is a closed unlit box the colour of the fog, hung outside the opening — it has no surface to read as a surface and no far wall to judge distance against, and it seals the view so you do not see the backs of the other rooms floating in the dark. Glass is real geometry with a body, so nothing can be thrown out and lost, and the wall under the sill keeps you in. |
 | 2026-08-28 | **C2 — spatial sound** | kept | A listener that follows the camera, and a `PannerNode` per event that has a place: impacts play from where the object hit, door creaks from the door, and the far thump now arrives on a bearing 11–24m away instead of from nowhere. Room tone and the mains hum stay monophonic deliberately — they are the room, not events in it, and giving them a position puts the room in a corner. Footsteps stay monophonic too, which the plan did not anticipate: they happen *at* the listener, so a panner costs a node and does nothing. Gives a marking player another way to know where they are, which is the §2 loop. |
 | 2026-08-28 | **A1a — change behind your back, markers respected** | **for Mick to judge** | A room you return to is not quite the room you left. One change per visit, made while the room is switched off so it is never seen happening: a light goes out, an unlit one comes on, a door you left open is shut, a shut one stands open. Never more than one, never the last light in a room, and never — measured, not asserted — anything you can pick up. Doors are the strongest change and the likeliest to break that promise, so a door only changes if nothing is standing in its swing. Light fittings had to come out of the E1 merge so a bulb can be seen to go out, which is why the mesh budget went up. **Judge by watching someone play without telling them: the tell is a double-take. If they say "that's a bug", it is too large.** |
 | 2026-08-28 | **objects slide after they settle** | noted, not chased | With the house left alone and drift off, 27 of 203 objects move more than 2cm over 30s of simulated time; the worst goes 0.85m. Not caused by A1a — identical with drift off. First guess was rolling, and that is not it: the big movers are all `Box` shapes of mass 4, and the cylinders barely move (0.11m). More likely generator-placed heavy objects resolving an overlap they were dressed into. The thing that actually matters for §2 is whether a marker *the player places* stays, and mostly it does — five placed and walked away from moved 0, 0, 0.012, 0 and 0.486m. Left alone deliberately: chasing it means changing damping or friction on the grabbables, and CLAUDE.md says not to stabilise them away without meaning to. |

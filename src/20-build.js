@@ -218,7 +218,11 @@ function buildWall(def, side, matName) {
   for (const h of sorted) {
     const l = h.at - h.w / 2, r = h.at + h.w / 2;
     if (l > cursor) segs.push({ a: cursor, b: l, y0: 0, y1: H });
-    segs.push({ a: l, b: r, y0: h.h, y1: H });     // lintel over the doorway
+    segs.push({ a: l, b: r, y0: h.h, y1: H });     // lintel over the opening
+    // Every opening in this building used to run from the floor up. A window
+    // does not: it needs wall under it too, which is the whole reason E2 is
+    // more than a hole in a wall.
+    if (h.sill > 0) segs.push({ a: l, b: r, y0: 0, y1: h.sill });
     cursor = r;
   }
   if (cursor < along / 2) segs.push({ a: cursor, b: along / 2, y0: 0, y1: H });
@@ -244,8 +248,53 @@ function buildWall(def, side, matName) {
     gpl.userData.noRay = true;
   }
 
+  for (const h of holes) if (h.window) buildWindow(def, side, h);
+
   buildLining(def, side, holes);
   buildTrim(def, side, holes, matName);
+}
+
+// A window, and what is outside it.
+//
+// What is outside it is nothing. Not a courtyard, not a street, not a view --
+// the house stops at the glass. That is done with a closed box hung outside the
+// opening, unlit and the colour of the fog, so there is no surface to read as a
+// surface and no far wall to judge a distance against: you look out and there
+// is no out. It also seals the view, which matters, because otherwise you would
+// see the backs of the other rooms floating in the dark and the answer to the
+// question would be "a lot of boxes".
+//
+// The glass is real geometry with a rigid body, so nothing can be thrown into
+// the nothing and lost, and the wall under the sill keeps you in.
+function buildWindow(def, side, h) {
+  const [W, H, D] = def.size, [ox, oz] = def.origin;
+  const face = FACE[side];
+  const y0 = h.sill || 0, hh = h.h - y0, ymid = y0 + hh / 2;
+
+  let cx, cz;
+  if (side === 'north') { cx = ox + h.at; cz = oz - D / 2 + WALL_T / 2; }
+  else if (side === 'south') { cx = ox + h.at; cz = oz + D / 2 - WALL_T / 2; }
+  else if (side === 'west') { cx = ox - W / 2 + WALL_T / 2; cz = oz + h.at; }
+  else { cx = ox + W / 2 - WALL_T / 2; cz = oz + h.at; }
+
+  // the pane: thin, solid, and see-through
+  const gw = (side === 'east' || side === 'west') ? 0.03 : h.w - 0.06;
+  const gd = (side === 'east' || side === 'west') ? h.w - 0.06 : 0.03;
+  mkBox(gw, hh - 0.06, gd, MAT.glass, [cx, ymid, cz], 0, 0, { cast: false });
+
+  // and the nothing. Big enough that its corners are never in shot, small
+  // enough to sit in the gap the generator checked was empty.
+  // sized to the gap the generator actually checked was empty (5.0m), not to
+  // whatever looks generous -- a box of nothing sticking through the room next
+  // door would be visible from inside it
+  const VOID = 4.2;
+  // FACE[side].n points *into* the room, and the nothing goes the other way
+  const vp = [cx - face.n[0] * (VOID / 2 + 0.3), ymid, cz - face.n[2] * (VOID / 2 + 0.3)];
+  const box = new THREE.Mesh(new THREE.BoxGeometry(VOID, VOID, VOID), MAT.nothing);
+  box.position.set(vp[0], vp[1], vp[2]);
+  box.userData.noRay = true;          // you cannot look at nothing, or take it
+  box.castShadow = false; box.receiveShadow = false;
+  attach(box);
 }
 
 // Line every opening. Without a lining the soffit is a downward-facing face no
@@ -257,30 +306,33 @@ function buildLining(def, side, holes) {
     if (h.blocked) continue;
     const t = 0.035, dz = WALL_T;
     const place = (w, hh, d, p) => mkBox(w, hh, d, lin, p, 0, 0, { noPhysics: true, cast: false });
+    const y0 = h.sill || 0, hh = h.h - y0, ymid = y0 + hh / 2;
     if (side === 'north' || side === 'south') {
       const z = side === 'north' ? oz - D / 2 + WALL_T / 2 : oz + D / 2 - WALL_T / 2;
       place(h.w, t, dz, [ox + h.at, h.h - t / 2, z]);
-      place(t, h.h, dz, [ox + h.at - h.w / 2 + t / 2, h.h / 2, z]);
-      place(t, h.h, dz, [ox + h.at + h.w / 2 - t / 2, h.h / 2, z]);
+      place(t, hh, dz, [ox + h.at - h.w / 2 + t / 2, ymid, z]);
+      place(t, hh, dz, [ox + h.at + h.w / 2 - t / 2, ymid, z]);
+      if (y0 > 0) place(h.w + 0.1, 0.05, dz + 0.05, [ox + h.at, y0 + 0.02, z]);   // the sill
       const az = side === 'north' ? z + WALL_T / 2 + 0.012 : z - WALL_T / 2 - 0.012;
       place(h.w + 0.18, 0.09, 0.025, [ox + h.at, h.h + 0.04, az]);
-      place(0.09, h.h + 0.09, 0.025, [ox + h.at - h.w / 2 - 0.045, (h.h + 0.09) / 2, az]);
-      place(0.09, h.h + 0.09, 0.025, [ox + h.at + h.w / 2 + 0.045, (h.h + 0.09) / 2, az]);
+      place(0.09, hh + 0.09, 0.025, [ox + h.at - h.w / 2 - 0.045, ymid + 0.045, az]);
+      place(0.09, hh + 0.09, 0.025, [ox + h.at + h.w / 2 + 0.045, ymid + 0.045, az]);
     } else {
       const x = side === 'west' ? ox - W / 2 + WALL_T / 2 : ox + W / 2 - WALL_T / 2;
       place(dz, t, h.w, [x, h.h - t / 2, oz + h.at]);
-      place(dz, h.h, t, [x, h.h / 2, oz + h.at - h.w / 2 + t / 2]);
-      place(dz, h.h, t, [x, h.h / 2, oz + h.at + h.w / 2 - t / 2]);
+      place(dz, hh, t, [x, ymid, oz + h.at - h.w / 2 + t / 2]);
+      place(dz, hh, t, [x, ymid, oz + h.at + h.w / 2 - t / 2]);
+      if (y0 > 0) place(dz + 0.05, 0.05, h.w + 0.1, [x, y0 + 0.02, oz + h.at]);
       const axx = side === 'west' ? x + WALL_T / 2 + 0.012 : x - WALL_T / 2 - 0.012;
       place(0.025, 0.09, h.w + 0.18, [axx, h.h + 0.04, oz + h.at]);
-      place(0.025, h.h + 0.09, 0.09, [axx, (h.h + 0.09) / 2, oz + h.at - h.w / 2 - 0.045]);
-      place(0.025, h.h + 0.09, 0.09, [axx, (h.h + 0.09) / 2, oz + h.at + h.w / 2 + 0.045]);
+      place(0.025, hh + 0.09, 0.09, [axx, ymid + 0.045, oz + h.at - h.w / 2 - 0.045]);
+      place(0.025, hh + 0.09, 0.09, [axx, ymid + 0.045, oz + h.at + h.w / 2 + 0.045]);
     }
   }
 
   // light spills through a doorway in the real world; here it has to be told to
   for (const h of holes) {
-    if (h.blocked) continue;
+    if (h.blocked || h.window) continue;   // nothing out there to spill in
     let lp;
     if (side === 'north') lp = [ox + h.at, h.h * 0.72, oz - D / 2 + WALL_T / 2];
     else if (side === 'south') lp = [ox + h.at, h.h * 0.72, oz + D / 2 - WALL_T / 2];
@@ -322,7 +374,9 @@ function buildTrim(def, side, holes, matName) {
   for (const run of runs) {
     // cut the run wherever an opening reaches this height, plus its architrave
     const cuts = holes
-      .filter(h => h.h > run.y - run.t / 2)
+      // an opening only interrupts a run if it actually spans that height: the
+      // skirting runs straight under a window, which is what makes it a window
+      .filter(h => h.h > run.y - run.t / 2 && (h.sill || 0) < run.y + run.t / 2)
       .map(h => [h.at - h.w / 2 - 0.1, h.at + h.w / 2 + 0.1])
       .sort((a, b) => a[0] - b[0]);
     const pieces = [];

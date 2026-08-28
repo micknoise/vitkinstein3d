@@ -15,8 +15,14 @@ const label = process.argv[3] || 'baseline';
 // not go off because a generated house came out slightly busier. If a change
 // legitimately needs more, raise them deliberately and say why in the commit.
 const BUDGET = {
-  roomCalls: 280,        // worst measured 251, storeroom on seed 8675309
-  roomTriangles: 11000,  // worst measured 9814, front room on seed 1234
+  // raised 2026-08-28 and provisionally: the houses got bigger (B3 adds a
+  // passage, E2 adds a window and with it more wall segments), and one room on
+  // seed 7 now draws 337. What is actually being drawn there is 61 grime planes
+  // and 27 decals -- transparent, so E1 left them out of the merge. Merging
+  // those per room is the next lever and should bring this back under 280; the
+  // budget comes back down when it does.
+  roomCalls: 360,        // worst measured 337, back room on seed 7
+  roomTriangles: 15000,  // worst measured 14154, same room
   // raised 2026-08-28, deliberately: B3 adds a passage to every house, and A1a
   // keeps the light fittings out of the merge so a bulb can be seen to go out.
   // Worst measured after both: 648 meshes, 639 geometries, against 573/568

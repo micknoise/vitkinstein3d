@@ -110,6 +110,12 @@ There is a console handle on `window.VK`: `VK.go(x,y,z,yaw,pitch)` teleports, `V
 to a room, `VK.aimAt(x,y,z)` points the camera, `VK.tick(n)` runs *n* physics frames without
 rendering, `VK.openAll()` opens every door, `VK.spaces` is the plan.
 
+## One window
+
+Every space is an interior except for one. Somewhere in each house there is a window, and outside it
+there is nothing — no ground, no sky, nothing to judge a distance against. The house stops at the
+glass.
+
 ## Keeping it fast
 
 The building is drawn a room at a time. Rooms are groups, and only the one you are in, the ones it
@@ -127,7 +133,7 @@ so none of this quietly comes undone.
 
 - Portals are single-bounce: one seen through another renders black.
 - Doors are animated rather than simulated; a leaf stops being solid the moment it moves.
-- One storey, axis-aligned rooms, no windows. The impossibility is entirely in the portals.
+- One storey, axis-aligned rooms. The impossibility is entirely in the portals.
 - No inventory and no gating yet: everything is takeable and nothing is required.
 - Sound is monophonic — the distant thump is distant in timbre only.
 

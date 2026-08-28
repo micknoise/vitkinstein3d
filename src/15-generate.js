@@ -13,12 +13,12 @@
 // on top of where you are standing.
 // ---------------------------------------------------------------------------
 
-let SPACES = {}, SPACE_ORDER = [], START = null, PORTAL_LINKS = [], LOOP_CORRIDOR = null;
+let SPACES = {}, SPACE_ORDER = [], START = null, PORTAL_LINKS = [], LOOP_CORRIDOR = null, WINDOW_AT = null;
 
 const OPP = { north: 'south', south: 'north', east: 'west', west: 'east' };
 
 function generateBuilding() {
-  SPACES = {}; SPACE_ORDER = []; PORTAL_LINKS = []; LOOP_CORRIDOR = null;
+  SPACES = {}; SPACE_ORDER = []; PORTAL_LINKS = []; LOOP_CORRIDOR = null; WINDOW_AT = null;
   const rooms = [];        // {key, type, ox, oz, W, H, D, walls:{}}
   let counter = 0;
 
@@ -43,6 +43,19 @@ function generateBuilding() {
     else if (side === 'south') { x = r.ox + at; z = r.oz + r.D / 2 + probe / 2; hw = w / 2 + 0.2; hd = probe / 2; }
     else if (side === 'west') { x = r.ox - r.W / 2 - probe / 2; z = r.oz + at; hw = probe / 2; hd = w / 2 + 0.2; }
     else { x = r.ox + r.W / 2 + probe / 2; z = r.oz + at; hw = probe / 2; hd = w / 2 + 0.2; }
+    return !rooms.some(o => o !== r &&
+      Math.abs(x - o.ox) < o.W / 2 + hw && Math.abs(z - o.oz) < o.D / 2 + hd);
+  }
+
+  // beyondFree asks whether the next 0.8m is clear, which is all a portal needs.
+  // A window needs a good deal more, because something gets built out there.
+  function clearBeyond(r, side, at, reach) {
+    const half = reach / 2;
+    let x, z, hw, hd;
+    if (side === 'north') { x = r.ox + at; z = r.oz - r.D / 2 - half; hw = reach / 2; hd = half; }
+    else if (side === 'south') { x = r.ox + at; z = r.oz + r.D / 2 + half; hw = reach / 2; hd = half; }
+    else if (side === 'west') { x = r.ox - r.W / 2 - half; z = r.oz + at; hw = half; hd = reach / 2; }
+    else { x = r.ox + r.W / 2 + half; z = r.oz + at; hw = half; hd = reach / 2; }
     return !rooms.some(o => o !== r &&
       Math.abs(x - o.ox) < o.W / 2 + hw && Math.abs(z - o.oz) < o.D / 2 + hd);
   }
@@ -129,6 +142,39 @@ function generateBuilding() {
     const hasDoor = rchance(ROOM_TYPES[typeKey].corridor || ROOM_TYPES[parent.type].corridor ? 0.55 : 0.85);
     SPACES[parent.key].openings.push({ wall: side, at: +pAt.toFixed(2), w: +doorW.toFixed(2), h: +h.toFixed(2), door: hasDoor });
     SPACES[child.key].openings.push({ wall: OPP[side], at: +cAt.toFixed(2), w: +doorW.toFixed(2), h: +h.toFixed(2) });
+  }
+
+  // --- E2: a window, onto nothing -----------------------------------------
+  // Every space in this building is an interior, so one window is the loudest
+  // thing in it. It needs a wall with real emptiness behind it, because a
+  // sealed box of nothing gets hung out there, and a box of nothing sticking
+  // through the neighbours would be worse than no window at all.
+  {
+    const wW = rr(0.95, 1.5), sill = +rr(0.82, 1.02).toFixed(2);
+    const cands = rshuffle(rooms.filter(r => r.type !== 'warehouse' && r.type !== 'passage'));
+    for (const r of cands) {
+      const top = Math.min(r.H - 0.35, sill + rr(1.05, 1.45));
+      if (top - sill < 0.85) continue;
+      const free = rshuffle(Object.keys(r.walls).filter(s => r.walls[s] === 0));
+      let put = null;
+      for (const side of free) {
+        const along = (side === 'east' || side === 'west') ? r.D : r.W;
+        const room = along / 2 - wW / 2 - 0.5;
+        if (room <= 0) continue;
+        for (let i = 0; i < 8; i++) {
+          const at = +rr(-room, room).toFixed(2);
+          if (clearBeyond(r, side, at, 5.0)) { put = { side, at }; break; }
+        }
+        if (put) break;
+      }
+      if (!put) continue;
+      r.walls[put.side] = 6;
+      SPACES[r.key].openings.push({
+        wall: put.side, at: put.at, w: +wW.toFixed(2), h: +top.toFixed(2), sill, window: true
+      });
+      WINDOW_AT = r.key;
+      break;
+    }
   }
 
   // --- B3: the corridor that returns to itself -----------------------------
@@ -285,7 +331,7 @@ function generateBuilding() {
 
   // --- light and furnish ---------------------------------------------------
   for (const r of rooms) { lightRoom(r); dressRoom(r); }
-  return { seed: SEED, rooms: rooms.length, portals: PORTAL_LINKS.length, loopCorridor: LOOP_CORRIDOR };
+  return { seed: SEED, rooms: rooms.length, portals: PORTAL_LINKS.length, loopCorridor: LOOP_CORRIDOR, window: WINDOW_AT };
 }
 
 // --- lighting ---------------------------------------------------------------
