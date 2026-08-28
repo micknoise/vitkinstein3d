@@ -147,6 +147,15 @@ const Audio = (() => {
       d[i] += v * amp * e;
     }
   }
+  // The inside of a closed steel drum. A short delay fed back on itself twice,
+  // baked into the sample at load: it is the enclosed air, and it is the whole
+  // difference between a drum and a piece of sheet metal. Two lengths, neither
+  // a multiple of the other, or it rings on one note.
+  function boom(d, sr, ms1, ms2, g1, g2) {
+    const a = Math.floor(sr * ms1 / 1000), b = Math.floor(sr * ms2 / 1000);
+    for (let i = a; i < d.length; i++) d[i] += d[i - a] * g1;
+    for (let i = b; i < d.length; i++) d[i] += d[i - b] * g2;
+  }
   function clip(d) { for (let i = 0; i < d.length; i++) d[i] = Math.max(-1, Math.min(1, d[i])); }
 
   function renderSFX() {
@@ -173,12 +182,34 @@ const Audio = (() => {
     // a half down, the tail nearly three times longer, and a lot more grit --
     // "a glockenspiel without the decay" is what you get from clean high
     // partials that stop before they have rung.
-    SFX.metal = make(3, 0.70, (d, sr, v) => {
-      fizz(d, 0.62, 110, sr, 4200, true);
-      tone(d, 86 * (1 + v * 0.09), 0.26, 7, sr, 0.03);
-      tone(d, 174 * (1 + v * 0.11), 0.17, 6, sr);
-      tone(d, 391 * (1 + v * 0.07), 0.10, 8, sr);
-      tone(d, 707 * (1 + v * 0.05), 0.05, 11, sr);
+    // One metal bank could not cover a tin can and an oil drum, and it was
+    // tuned somewhere between the two, so both were wrong: the can rang like a
+    // bell and the drum was an octave too high. Three sizes.
+
+    // a tin. Tiny, thin, and it does not resonate -- it clatters and stops.
+    SFX.tin = make(3, 0.14, (d, sr, v) => {
+      fizz(d, 0.70, 420, sr, 6500, true);
+      tone(d, 640 * (1 + v * 0.12), 0.10, 70, sr, 0.06);
+      tone(d, 1180 * (1 + v * 0.08), 0.05, 90, sr);
+    });
+
+    // a pipe, a bucket, a shelf bracket
+    SFX.metal = make(3, 0.55, (d, sr, v) => {
+      fizz(d, 0.60, 130, sr, 4000, true);
+      tone(d, 150 * (1 + v * 0.09), 0.20, 9, sr, 0.03);
+      tone(d, 318 * (1 + v * 0.11), 0.13, 8, sr);
+      tone(d, 605 * (1 + v * 0.07), 0.07, 12, sr);
+    });
+
+    // an oil drum. Deep, and full of air: the fundamental is down where a kick
+    // drum lives, and the comb tail is the inside of it.
+    SFX.drum = make(3, 0.95, (d, sr, v) => {
+      fizz(d, 0.45, 90, sr, 1800);
+      tone(d, 58 * (1 + v * 0.07), 0.62, 5.0, sr, 0.10);
+      tone(d, 94 * (1 + v * 0.06), 0.30, 6.5, sr, 0.05);
+      tone(d, 163 * (1 + v * 0.08), 0.16, 8.0, sr);
+      tone(d, 268 * (1 + v * 0.05), 0.07, 11, sr);
+      boom(d, sr, 11.3 + v * 1.1, 17.9 + v * 1.3, 0.46, 0.30);
     });
     // a chink.
     // A bottle put down on tile is a short chink, not a struck bell. The
@@ -189,10 +220,10 @@ const Audio = (() => {
       tone(d, 1420 * (1 + v * 0.06), 0.07, 60, sr);
     });
     // a clonk. Mugs, jars, tins.
-    SFX.ceramic = make(3, 0.20, (d, sr, v) => {
-      fizz(d, 0.62, 300, sr, 4200, true);
-      tone(d, 420 * (1 + v * 0.1), 0.20, 40, sr, 0.05);
-      tone(d, 870 * (1 + v * 0.07), 0.08, 55, sr);
+    // A cup is a small thing that stops. Almost all noise, a trace of body.
+    SFX.ceramic = make(3, 0.13, (d, sr, v) => {
+      fizz(d, 0.72, 460, sr, 3800, true);
+      tone(d, 390 * (1 + v * 0.1), 0.10, 85, sr, 0.06);
     });
     // a thud, with nothing ringing at all.
     SFX.stone = make(3, 0.22, (d, sr, v) => {

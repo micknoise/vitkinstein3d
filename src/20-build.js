@@ -1105,7 +1105,7 @@ const PROPS = {
   },
 
   drum: ({ x, z }) => {
-    const d = mkCyl(0.29, 0.29, 0.88, 16, rchance(0.5) ? MAT.rust : MAT.metal, [x, 0.45, z], 22);
+    const d = mkCyl(0.29, 0.29, 0.88, 16, rchance(0.5) ? MAT.rust : MAT.metal, [x, 0.45, z], 22, { snd: 'drum' });
     const rib = new THREE.Mesh(new THREE.TorusGeometry(0.29, 0.02, 6, 20), MAT.rust);
     rib.rotation.x = Math.PI / 2; rib.position.y = 0.15; d.mesh.add(rib);
     const rib2 = rib.clone(); rib2.position.y = -0.15; d.mesh.add(rib2);
@@ -1143,7 +1143,7 @@ const PROPS = {
     neck.position.y = 0.155; b.mesh.add(neck);
   },
   jar: ({ x, z, y }) => mkCyl(0.055, 0.055, 0.14, 12, MAT.glass, [x, (y || 0) + 0.07, z], 0.6),
-  tin: ({ x, z, y }) => mkCyl(0.043, 0.043, 0.11, 12, MAT.metal, [x, (y || 0) + 0.055, z], 0.5),
+  tin: ({ x, z, y }) => mkCyl(0.043, 0.043, 0.11, 12, MAT.metal, [x, (y || 0) + 0.055, z], 0.5, { snd: 'tin' }),
   mug: ({ x, z, y }) => {
     const c = mkCyl(0.042, 0.036, 0.095, 12, MAT.plastic, [x, (y || 0) + 0.048, z], 0.35, { snd: 'ceramic' });
     const h = new THREE.Mesh(new THREE.TorusGeometry(0.028, 0.008, 5, 10, Math.PI * 1.4), MAT.plastic);

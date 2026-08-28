@@ -1,4 +1,4 @@
-# Vitkinstein 3D — Demo Specification
+# Wittgenstein 3D — Demo Specification
 
 **Build:** v0.2 — generated buildings, non-euclidean space
 **Date:** 27 August 2026

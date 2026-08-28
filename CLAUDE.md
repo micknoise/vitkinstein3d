@@ -1,4 +1,4 @@
-# Working on Vitkinstein 3D
+# Working on Wittgenstein 3D
 
 A first-person exploration demo about perception and the uncanny. Read
 `PLAN.md` before starting anything — it is the experiment list and the working

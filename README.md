@@ -1,4 +1,4 @@
-# Vitkinstein 3D
+# Wittgenstein 3D
 
 **[Play it →](https://micknoise.github.io/vitkinstein3d/)**
 
