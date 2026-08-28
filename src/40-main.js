@@ -263,6 +263,9 @@ function init() {
     get world() { return world; }, get spaces() { return SPACES; },
     MAT, PROPS, doors, PORTALS,
     get mergeStats() { return mergeStats; },
+    get driftCount() { return driftCount; },
+    get allLights() { return allLights; },
+    drift(key) { _visited.add(key); driftRoom(key); },
     get roomGroups() { return roomGroups; },
     get bodyTraversals() { return bodyTraversals; },
     get bodyTraversals() { return bodyTraversals; },
@@ -334,6 +337,7 @@ function updateSpace() {
   targetFog = sp.fog;
   if (sp.key === currentSpace) return;
   currentSpace = sp.key;
+  _visited.add(sp.key);
   const label = SPACES[sp.key].label;
   if (label && label !== '—' && prompt) showPrompt(label, 2600);
   Audio.setTone(SPACES[sp.key]._type === 'warehouse' ? 0.13 : 0.09);
@@ -445,6 +449,84 @@ function roomInView(key) {
   return _roomFrustum.intersectsBox(_roomBox);
 }
 
+// --- A1a: the house changes behind your back ---------------------------------
+//
+// A room you come back to is not quite the room you left. One change per visit,
+// made while the room is switched off, so it is never seen happening.
+//
+// What it may touch: the light fittings and the doors -- things the house owns.
+// What it may never touch: anything you can pick up. Players mark rooms with
+// objects to work out whether they have been there before (PLAN §2), and that
+// instrument has to stay trustworthy or the doubt it produces is worthless.
+// Moving a marker is a different experiment, A1b, and it is not this one.
+//
+// Its own random stream, so a drift does not depend on how many rooms you
+// happened to walk through, and ?nodrift=1 turns it off for the screenshot A/B.
+const DRIFT_OFF = QS.has('nodrift');
+const DR = mulberry32((SEED ^ 0x5bf03635) >>> 0);
+const _visited = new Set();
+let driftCount = 0;
+
+// A door is the strongest change available and the one most likely to break the
+// promise: a leaf swinging through a mug somebody left in the doorway has moved
+// their marker, whatever the intention was. So a door only changes if its swing
+// is empty.
+const _swing = new THREE.Vector3();
+function doorSwingClear(d) {
+  const reach = d.w + 0.4;
+  for (const { mesh, body } of dynamicPairs) {
+    _swing.set(body.position.x - d.pivot.position.x, 0, body.position.z - d.pivot.position.z);
+    if (body.position.y < d.h + 0.3 && _swing.lengthSq() < reach * reach) return false;
+  }
+  return true;
+}
+
+function driftRoom(key) {
+  if (DRIFT_OFF || !_visited.has(key)) return;   // it has to have been seen to be different
+  if (DR() > 0.45) return;                       // not every time you leave
+
+  const lit = [], dark = [], shut = [], ajar = [];
+  for (const l of allLights) {
+    if (l.space !== key || !l.glow || !l.base) continue;
+    (l.intensity > 0 ? lit : dark).push(l);
+  }
+  for (const d of doors) if (d.space === key && doorSwingClear(d)) (d.open ? ajar : shut).push(d);
+
+  // prefer taking something away: a room that has gone dark is worth more than
+  // a room that has come on
+  const options = [];
+  if (lit.length > 1) options.push('off');       // never the last light in a room
+  if (dark.length) options.push('on');
+  if (ajar.length) options.push('shut');
+  if (shut.length) options.push('open');
+  if (!options.length) return;
+
+  const pick = options[Math.floor(DR() * options.length)];
+  if (pick === 'off' || pick === 'on') {
+    const pool = pick === 'off' ? lit : dark;
+    const l = pool[Math.floor(DR() * pool.length)];
+    l.intensity = pick === 'off' ? 0 : l.base;
+    if (l.glow) {
+      // the fitting is kept out of the merge for exactly this; give it a
+      // material of its own the first time rather than dimming every bulb
+      if (!l.glow.userData.ownMat) {
+        l.glow.material = l.glow.material.clone();
+        l.glow.userData.ownMat = true;
+        l.glow.userData.litColor = l.glow.material.color.clone();
+      }
+      l.glow.material.color.copy(pick === 'off'
+        ? l.glow.userData.litColor.clone().multiplyScalar(0.13)
+        : l.glow.userData.litColor);
+    }
+    for (const f of flickerers) if (f.light === l) f.base = l.intensity;
+  } else {
+    const d = (pick === 'shut' ? ajar : shut)[Math.floor(DR() * (pick === 'shut' ? ajar : shut).length)];
+    d.open = pick === 'open';
+  }
+  driftCount++;
+  shadowsDirty = true;
+}
+
 function updateRoomVisibility(portals) {
   _roomMat.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
   _roomFrustum.setFromProjectionMatrix(_roomMat);
@@ -455,7 +537,7 @@ function updateRoomVisibility(portals) {
 
   // only touch the ones that changed
   for (const key of _visRooms) if (!_shown.has(key)) roomGroups[key].visible = true;
-  for (const key of _shown) if (!_visRooms.has(key)) roomGroups[key].visible = false;
+  for (const key of _shown) if (!_visRooms.has(key)) { roomGroups[key].visible = false; driftRoom(key); }
   _shown.clear();
   for (const key of _visRooms) _shown.add(key);
   roomsShown = _visRooms.size;

@@ -168,7 +168,7 @@ function makeDoor(pos, rotY, w, h, hingeSign) {
   body.quaternion.setFromEuler(0, rotY, 0);
   world.addBody(body);
 
-  const door = { pivot, body, open: false, t: 0, dir: hingeSign, inWorld: true, meshes: [] };
+  const door = { pivot, body, open: false, t: 0, dir: hingeSign, inWorld: true, meshes: [], space: buildingSpace, w, h };
   pivot.traverse(o => { if (o.isMesh) { o.userData.door = door; door.meshes.push(o); } });
   doors.push(door);
   return door;

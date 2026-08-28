@@ -9,7 +9,7 @@ method, and it is where results get written down.
 ```sh
 npm install
 npm run build                 # src/ + three + cannon-es  ->  index.html
-npm test                      # 30 checks x 5 seeds, headless; must be green
+npm test                      # 33 checks x 5 seeds, headless; must be green
 npm test 424242               # one seed
 npm run perf                  # draw calls / triangles / lights per room
 npm run perf all              # ...across all five test seeds
@@ -72,7 +72,8 @@ generated building and a hand-written one are the same kind of thing.
 `tick(n)` (physics without rendering), `openAll()`, `grab()/hurl()`,
 `spaces`, `count()`, `info()`, `PORTALS`, `renderer`.
 
-URL flags: `?seed=N`, `?perf=1`, `?pr=N` (pin pixel ratio), `?nograin=1`.
+URL flags: `?seed=N`, `?perf=1`, `?pr=N` (pin pixel ratio), `?nograin=1`,
+`?nodrift=1` (stop rooms changing behind you, for a screenshot A/B).
 
 ## House rules
 

@@ -35,8 +35,11 @@ const _spillAt = new Set();      // one spill per doorway, not one per side
 // something that casts one has actually moved.
 let shadowsDirty = true;
 
+let buildingSpace = null;      // which room addLight/hangDoor are being called for
+
 function addLight(p, color, intensity, distance, decay) {
   const src = {
+    space: buildingSpace,
     pos: new THREE.Vector3(p[0], p[1], p[2]),
     color: new THREE.Color(color),
     intensity,
@@ -351,6 +354,7 @@ function buildSpace(key, def) {
   scene.add(group);
   roomGroups[key] = group;
   addTo = group;
+  buildingSpace = key;
 
   mkBox(W, 0.4, D, scaledMat(def.floor, W, D), [ox, -0.2, oz], 0, 0, { cast: false, jitter: true });
   mkBox(W, 0.3, D, scaledMat(def.ceiling, W, D), [ox, H + 0.15, oz], 0, 0, { cast: false, jitter: true });
@@ -373,8 +377,10 @@ function buildSpace(key, def) {
     const p = [ox + L.pos[0], L.pos[1], oz + L.pos[2]];
     if (L.intensity <= 0) { deadFitting(p, L.tube, H); continue; }
     const light = addLight(p, L.color, L.intensity, L.dist || 10, L.decay || 2);
+    light.base = L.intensity;
     if (L.flicker) flickerers.push({ light, base: L.intensity, amt: L.flicker, seed: R() * 100 });
     const glow = fitting(p, L.tube, H);
+    light.glow = glow;
     if (L.flicker && glow) flickerers[flickerers.length - 1].glow = glow;
   }
 
@@ -383,6 +389,7 @@ function buildSpace(key, def) {
   for (const spec of (def.props || [])) placeProp(def, spec);
 
   addTo = null;
+  buildingSpace = null;
 }
 
 // Two rooms are neighbours if a wall plane they share has openings in it that
@@ -515,7 +522,7 @@ function mergeStatics() {
       if (Array.isArray(o.material)) return;
       const mat = o.material;
       if (mat.transparent || mat.depthWrite === false) return;
-      if (o.userData.noRay) return;
+      if (o.userData.noRay || o.userData.fitting) return;
       const geo = o.geometry;
       if (!geo || !geo.attributes.position) return;
       // a BoxGeometry carries six material groups even when it has one material;
@@ -586,12 +593,14 @@ function fitting(p, tube, H) {
 
   if (tube) {
     const t = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.06, 1.2), MAT.tube);
+    t.userData.fitting = true;
     t.position.set(p[0], p[1] + 0.06, p[2]); attach(t);
     const h = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.07, 1.35), MAT.plastic);
     h.position.set(p[0], p[1] + 0.13, p[2]); attach(h);
     return t;
   }
   const b = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 8), MAT.bulb);
+  b.userData.fitting = true;                 // kept out of the merge so it can go out
   b.position.set(p[0], p[1], p[2]); attach(b);
   const flexLen = Math.max(0.05, H - p[1] + 0.1);
   const flex = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, flexLen, 5), MAT.dark);
@@ -819,6 +828,7 @@ const PROPS = {
     const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), MAT.bulb);
     bulb.position.set(x, 1.48, z); attach(bulb);
     const light = addLight([x, 1.48, z], 0xffa956, 6.0, 9, 2);
+    light.base = 6.0; light.glow = bulb; bulb.userData.fitting = true;
     flickerers.push({ light, base: 6.0, amt: 0.012, seed: R() * 10, glow: bulb });
   },
 

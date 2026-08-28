@@ -17,8 +17,12 @@ const label = process.argv[3] || 'baseline';
 const BUDGET = {
   roomCalls: 280,        // worst measured 251, storeroom on seed 8675309
   roomTriangles: 11000,  // worst measured 9814, front room on seed 1234
-  meshes: 640,           // worst measured 573
-  geometries: 640,       // worst measured 568
+  // raised 2026-08-28, deliberately: B3 adds a passage to every house, and A1a
+  // keeps the light fittings out of the merge so a bulb can be seen to go out.
+  // Worst measured after both: 648 meshes, 639 geometries, against 573/568
+  // before. Draw calls per room are unaffected -- a fitting is two triangles.
+  meshes: 720,           // worst measured 648
+  geometries: 720,       // worst measured 639
   programs: 20           // measured 16 everywhere
 };
 const breaches = [];

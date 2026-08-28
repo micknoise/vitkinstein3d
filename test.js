@@ -181,6 +181,45 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
       assert(port.space === port.target, 'and in the room that door opens onto (' + port.space + ')');
     }
 
+    // --- the house changes behind your back, and only its own things (A1a) ---
+    const drift = await p.evaluate(() => {
+      const T = VK.THREE;
+      VK.tick(600);                       // settle, so nothing is moving of its own accord
+      const grabs = [];
+      VK.scene.traverse(o => { if (o.userData && o.userData.grabbable) grabs.push(o); });
+      const before = grabs.map(g => g.getWorldPosition(new T.Vector3()).clone());
+      const start = VK.driftCount;
+
+      // drift every room over and over, with the player standing still. No
+      // physics runs in between, so anything that has moved was moved by the
+      // house rather than by settling.
+      const keys = Object.keys(VK.spaces);
+      for (let round = 0; round < 14; round++) for (const k of keys) VK.drift(k);
+
+      let moved = 0, worst = 0;
+      for (let i = 0; i < grabs.length; i++) {
+        const d = before[i].distanceTo(grabs[i].getWorldPosition(new T.Vector3()));
+        if (d > 1e-6) moved++;
+        worst = Math.max(worst, d);
+      }
+
+      // and no room may be left with every light out
+      const per = {};
+      for (const l of VK.allLights) {
+        if (!l.space || !l.glow || !l.base) continue;
+        per[l.space] = per[l.space] || { on: 0, total: 0 };
+        per[l.space].total++;
+        if (l.intensity > 0) per[l.space].on++;
+      }
+      const blacked = Object.entries(per).filter(([, v]) => v.on === 0).map(([k]) => k);
+      return { drifts: VK.driftCount - start, moved, worst, blacked, objects: grabs.length };
+    });
+    assert(drift.drifts > 0, 'leaving a room can change it behind your back (' + drift.drifts + ' changes)');
+    assert(drift.moved === 0, 'and it never moves anything you can pick up (' + drift.moved + ' of ' +
+      drift.objects + ' moved' + (drift.moved ? ', worst ' + drift.worst.toFixed(2) + 'm' : '') + ')');
+    assert(drift.blacked.length === 0, 'and never puts every light in a room out (' +
+      (drift.blacked.length ? drift.blacked.join(', ') : 'none dark') + ')');
+
     // --- every doorway has to fit in the wall it is cut into ------------------
     // A doorway placed past the end of its wall is not a doorway. The wall
     // builder clips it, leaving a slot you can see through and not walk
