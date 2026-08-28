@@ -204,6 +204,24 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
       const rt = VK.renderer.getRenderTarget();
       return { onScreenAfterFrame: rt === null, lost: gl.isContextLost(), drew: VK.renderer.info.render.calls > before };
     });
+    // the tape breaks up rarely and briefly -- a permanent shimmer is a filter,
+    // not a fault, and that is the difference this is trying to hold
+    const breakup = await p.evaluate(() => {
+      let on = 0, longest = 0, run = 0, events = 0, was = false;
+      const step = 1 / 240;
+      for (let t = 0; t < 300; t += step) {
+        const b = VK.burstAt(t) > 0.02;
+        if (b) { on += step; run += step; if (!was) events++; }
+        else { longest = Math.max(longest, run); run = 0; }
+        was = b;
+      }
+      return { duty: on / 300, longest: Math.max(longest, run), events };
+    });
+    assert(breakup.duty > 0.002 && breakup.duty < 0.04,
+      'the tape breaks up, and rarely (' + (breakup.duty * 100).toFixed(2) + '% of the time, ' + breakup.events + ' times in five minutes)');
+    assert(breakup.longest < 0.5,
+      'and briefly when it does (' + breakup.longest.toFixed(2) + 's at the longest)');
+
     assert(tape.lost === false, 'the tape pass does not lose the context');
     assert(tape.onScreenAfterFrame, 'and hands the canvas back when it has finished with it');
 

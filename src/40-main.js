@@ -312,6 +312,7 @@ function init() {
     get scene() { return scene; }, get camera() { return camera; },
     get world() { return world; }, get spaces() { return SPACES; },
     MAT, PROPS, doors, PORTALS, Audio,
+    burstAt,
     get mergeStats() { return mergeStats; },
     get driftCount() { return driftCount; },
     get allLights() { return allLights; },

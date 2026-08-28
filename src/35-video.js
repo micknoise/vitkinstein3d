@@ -35,6 +35,7 @@ const VIDEO_FRAG = `
   uniform vec2  res;
   uniform float time;
   uniform float exposure;
+  uniform float burstAmt;   // worked out on the CPU, see burstAt()
   varying vec2 vUv;
 
   // ACES, the same fit the portals use, because this pass is now the only
@@ -82,14 +83,27 @@ const VIDEO_FRAG = `
     float bar = smoothstep(0.055, 0.0, abs(fract(lens.y + 0.5 - roll) - 0.5) - 0.44);
     float tear = bar * (noise1(time * 40.0) - 0.5) * 0.045;
 
-    // wobble: the tape never runs at quite the right speed
-    float wob = (noise1(time * 2.3) - 0.5) * 0.0022
-              + sin((lens.y + 0.5) * 90.0 + time * 5.0) * 0.0006;
+    // The tape never runs at quite the right speed, but only just: a picture
+    // that is always moving reads as a camera being shaken, and this is meant
+    // to read as a tape that is mostly fine.
+    float wob = sin((lens.y + 0.5) * 90.0 + time * 5.0) * 0.00035;
 
-    // interference: bursts of torn scan lines that come and go
-    float burst = smoothstep(0.72, 0.98, noise1(time * 0.7));
-    float lineJ = (hash(vec2(floor((lens.y + 0.5) * res.y * 0.5), floor(time * 30.0))) - 0.5);
-    float slip = burst * lineJ * 0.03;
+    // Interference proper. Rare, and when it comes it is violent and quick --
+    // a slow selector decides *whether*, a very fast one decides *what*, so a
+    // burst is a fraction of a second of static rather than a permanent
+    // shimmer. This is the difference between a broken tape and a bad filter.
+    float burst = burstAmt;
+
+    // per scan line, redrawn 240 times a second: at that rate the eye reads it
+    // as static rather than as movement
+    float lineJ = (hash(vec2(floor((lens.y + 0.5) * res.y * 0.5), floor(time * 240.0))) - 0.5);
+    // and the whole frame snatches sideways with it
+    float snatch = (noise1(time * 170.0) - 0.5);
+    float slip = burst * (lineJ * 0.052 + snatch * 0.018);
+
+    // the odd single line thrown right out, which only ever happens mid-burst
+    float dropout = step(0.994, hash(vec2(floor((lens.y + 0.5) * res.y * 0.5), floor(time * 240.0) + 7.0)));
+    slip += burst * dropout * (hash(vec2(floor(time * 240.0), 3.0)) - 0.5) * 0.16;
 
     vec2 off = vec2(tear + wob + slip, 0.0);
 
@@ -111,8 +125,12 @@ const VIDEO_FRAG = `
 
     // --- noise, and the bar itself ----------------------------------------
     float grain = hash(uv * res + fract(time) * 91.7) - 0.5;
-    col += grain * (0.055 + 0.09 * burst);
+    col += grain * (0.115 + 0.24 * burst);
+    // a second, coarser grain -- tape noise is not one grain size
+    float grain2 = hash(floor(uv * res * 0.5) + fract(time * 1.7) * 53.3) - 0.5;
+    col += grain2 * (0.05 + 0.16 * burst);
     col += bar * 0.055;
+    col += burst * 0.045;                                  // static lifts the black
 
     // --- the tube ----------------------------------------------------------
     col *= 1.0 - 0.62 * smoothstep(0.30, 0.95, r2);      // vignette, heavy but not a tunnel
@@ -123,6 +141,28 @@ const VIDEO_FRAG = `
     float inside = step(0.0, base.x) * step(base.x, 1.0) * step(0.0, base.y) * step(base.y, 1.0);
     gl_FragColor = vec4(col * inside, 1.0);
   }`;
+
+// How hard the tape is breaking up, right now.
+//
+// This is worked out here rather than in the shader because it has to be
+// *rare*, and rare is the one thing hash-and-smoothstep noise is bad at: you
+// end up either with a permanent shimmer or, if you push the threshold up to
+// stop that, with nothing at all for minutes. Here it is simply stated: a
+// window every few seconds, most of them empty, and when one is not empty it
+// lasts a couple of hundred milliseconds and is violent.
+const BURST_EVERY = 6.5;          // seconds between chances of one
+const BURST_ODDS = 0.45;          // how many of those chances come to anything
+function bhash(n) { const s = Math.sin(n * 12.9898 + 78.233) * 43758.5453; return s - Math.floor(s); }
+function burstAt(t) {
+  const i = Math.floor(t / BURST_EVERY);
+  const pick = bhash(i);
+  if (pick > BURST_ODDS) return 0;
+  const dur = 0.09 + bhash(i + 101) * 0.20;
+  const at = bhash(i + 57) * (BURST_EVERY - dur - 0.2);
+  const u = (t - i * BURST_EVERY - at) / dur;
+  if (u < 0 || u > 1) return 0;
+  return Math.pow(Math.sin(u * Math.PI), 0.55);   // on hard, off hard
+}
 
 function initVideo() {
   VHS_OFF = QS.has('novhs');
@@ -140,7 +180,8 @@ function initVideo() {
       time: { value: 0 },
       // the tape costs about a third of a stop between the scan lines, the
       // vignette and the desaturation; give it back before any of that happens
-      exposure: { value: renderer.toneMappingExposure * 1.28 }
+      exposure: { value: renderer.toneMappingExposure * 1.28 },
+      burstAmt: { value: 0 }
     },
     vertexShader: VIDEO_VERT, fragmentShader: VIDEO_FRAG,
     depthTest: false, depthWrite: false
@@ -171,6 +212,7 @@ function resizeVideo() {
 function renderVideo(t) {
   if (!videoRT) { renderer.render(scene, camera); return; }
   videoMat.uniforms.time.value = t;
+  videoMat.uniforms.burstAmt.value = burstAt(t);
   renderer.setRenderTarget(videoRT);
   renderer.clear();
   renderer.render(scene, camera);

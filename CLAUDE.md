@@ -9,7 +9,7 @@ method, and it is where results get written down.
 ```sh
 npm install
 npm run build                 # src/ + three + cannon-es  ->  index.html
-npm test                      # 41 checks x 5 seeds, headless; must be green
+npm test                      # 43 checks x 5 seeds, headless; must be green
 npm test 424242               # one seed
 npm run perf                  # draw calls / triangles / lights per room
 npm run perf all              # ...across all five test seeds
