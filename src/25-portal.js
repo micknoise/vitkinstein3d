@@ -304,7 +304,11 @@ function traverse(p) {
   const cam = new THREE.Vector3(playerBody.position.x, playerBody.position.y + 0.9, playerBody.position.z);
   for (const q of PORTALS) q.side = Math.sign(portalSide(q, cam)) || 1;
 
-  if (typeof Audio !== 'undefined' && Audio.through) Audio.through();
+  // No sound. There was one -- a low thump as you came through -- and it was
+  // the single thing that gave a portal away: everything else about a crossing
+  // is built to be unnoticeable, and then it announced itself. If you are meant
+  // to walk from one room into another and only later work out that you cannot
+  // have, the crossing has to be silent.
 }
 
 // --- rendering ---------------------------------------------------------------

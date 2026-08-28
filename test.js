@@ -309,9 +309,8 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
     }
 
     // --- sound comes from where the thing happened (C2) ----------------------
-    // Room tone and the mains hum stay monophonic on purpose: they are the room
-    // itself, not events in it. Footsteps too -- they happen at the listener, so
-    // a panner would cost a node and do nothing.
+    // Your own feet and your own hands happen at the listener, so a panner on
+    // them would cost a node and do nothing.
     const sound = await p.evaluate(() => {
       const T = VK.THREE;
       const AC = window.AudioContext || window.webkitAudioContext;
@@ -324,7 +323,7 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
         VK.Audio.impact(3, 1.0, [1, 1, 5], 'ceramic', 0.12);   // a mug, somewhere
         const placed = panners - before;
         VK.Audio.step('tile');                    // your own feet
-        VK.Audio.through();                       // the fold, which is everywhere
+        VK.Audio.blip(0, 0, 0.05);                // your own hand, at your own ear
         const unplaced = panners - before - placed;
         VK.Audio.listen(new T.Vector3(1, 1.2, 2), new T.Vector3(0, 0, -1), new T.Vector3(0, 1, 0));
         return { placed, unplaced, listened: true };
@@ -371,7 +370,7 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
       const nb = (VK.roomGraph[here] || [])[0];
       const far = keys.find(x => x !== here && x !== nb && (VK.roomGraph[here] || []).indexOf(x) < 0);
       const at = k => { const sp = VK.spaces[k]; return [sp.origin[0], 1, sp.origin[1]]; };
-      return { out, kinds: Object.keys(out).length,
+      return { out, kinds: Object.keys(out).length, noThrough: typeof VK.Audio.through === 'undefined',
         thin: Object.entries(out).filter(([, v]) => v.n < 2 || v.peak < 0.05).map(([k]) => k),
         same: VK.Audio.occlusion(at(here)).cut,
         near: nb ? VK.Audio.occlusion(at(nb)).cut : null,
@@ -379,6 +378,11 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
     });
     assert(banks.kinds >= 8,
       'there is a drawn sound for every kind of thing (' + banks.kinds + ' banks)');
+    // Crossing a fold makes no sound at all. Everything else about a traversal
+    // is built to be unnoticeable; a noise at the moment it happens is the one
+    // thing that tells you it happened.
+    assert(!('through' in banks.out) && banks.noThrough,
+      'and none for going through a portal, which has to be silent');
     assert(banks.thin.length === 0,
       'each with more than one take, and audible' + (banks.thin.length ? ' — thin: ' + banks.thin.join(', ') : ''));
     if (banks.near !== null && banks.away !== null)

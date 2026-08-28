@@ -16006,7 +16006,11 @@ function traverse(p) {
   const cam = new THREE.Vector3(playerBody.position.x, playerBody.position.y + 0.9, playerBody.position.z);
   for (const q of PORTALS) q.side = Math.sign(portalSide(q, cam)) || 1;
 
-  if (typeof Audio !== 'undefined' && Audio.through) Audio.through();
+  // No sound. There was one -- a low thump as you came through -- and it was
+  // the single thing that gave a portal away: everything else about a crossing
+  // is built to be unnoticeable, and then it announced itself. If you are meant
+  // to walk from one room into another and only later work out that you cannot
+  // have, the crossing has to be silent.
 }
 
 // --- rendering ---------------------------------------------------------------
@@ -16957,25 +16961,6 @@ const Audio = (() => {
     // going through the fold. Not a pitch-drop -- that is a sound effect from a
     // different kind of game. A held breath: everything is pulled inward and
     // then let go, with nothing where the middle of it should be.
-    // This one is played at the instant you cross, so the event is at the front
-    // of it and everything else is the tail. The first version had its arrival
-    // two thirds of the way through a second-long buffer, which put the sound
-    // of going through a door most of a second after you had gone through it.
-    SFX.through = make(2, 0.80, (d, sr, v) => {
-      const n = d.length;
-      let lp = 0;
-      for (let i = 0; i < n; i++) {
-        const t = i / sr, u = i / n;
-        // the arrival: a soft low thump right at the top
-        const hit = Math.exp(-t * 9);
-        d[i] += Math.sin(2 * Math.PI * (58 + v * 6) * t * (1 - 0.22 * Math.min(1, t * 4))) * 0.42 * hit;
-        // air pulled past you, dying away
-        lp += ((Math.random() * 2 - 1) - lp) * 0.06;
-        d[i] += lp * 0.5 * Math.exp(-t * 5.5) * (1 - 0.6 * u);
-        // and a little of the room going with it
-        d[i] += Math.sin(2 * Math.PI * 143 * t) * 0.10 * Math.exp(-t * 3.2);
-      }
-    });
   }
 
   // playing one is a single node
@@ -17025,8 +17010,6 @@ const Audio = (() => {
       play(SFX[cls] || SFX.wood, Math.min(0.46, 0.07 + 0.44 * hit * hit), Math.max(0.60, Math.min(1.18, r)), at);
     },
     listen,
-    // the sound of the room changing behind you
-    through: () => play(SFX.through, 0.38, 0.96 + Math.random() * 0.08),
     // The room tone has gone the way of the hum: it was noise under everything,
     // all the time, and it was the thing you could hear when nothing was
     // happening. Kept as a no-op so the caller does not have to care.
