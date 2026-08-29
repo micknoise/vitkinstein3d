@@ -42,7 +42,13 @@ const breaches = [];
   for (const seed of seeds) {
     const p = await b.newPage({ viewport: { width: 1280, height: 720 } });
     const errs = []; p.on('pageerror', e => errs.push(e.message));
-    await p.goto('file://' + process.cwd() + '/index.html?seed=' + seed);
+    // ?nofx=1. renderer.info is reset by every render() call, so with the
+    // perception pass on the last thing drawn before the numbers are read is
+    // its own fullscreen triangle -- one call, one triangle, every room, and a
+    // budget that cannot fail. The pass costs the same in every room and is
+    // not what this probe is for; turning it off puts the scene render last
+    // again, which is what these counts have always meant.
+    await p.goto('file://' + process.cwd() + '/index.html?seed=' + seed + '&nofx=1');
     await p.waitForFunction(() => !!window.VK, null, { timeout: 90000 });
     await p.evaluate(() => {
       document.getElementById('title').style.display = 'none';
