@@ -8,7 +8,8 @@
     "shots": "node shots.js",
     "perf": "node perf-probe.js",
     "compare": "node shot-compare.js",
-    "diff": "node shot-diff.js"
+    "diff": "node shot-diff.js",
+    "music": "node music-probe.js"
   },
   "keywords": [
     "three.js",

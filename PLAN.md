@@ -15,7 +15,7 @@ what would make us drop it.
 `main` is the only branch; local and `origin/main` agree, and the committed
 `index.html` is a faithful build of the committed `src/`.
 
-Verified on the current build, five seeds, headless: 53/53 checks pass —
+Verified on the current build, five seeds, headless: 63/63 checks pass —
 generation, no room overlaps, every room reachable, the body, the hands, doors,
 no trim across a doorway, portal traversal, objects and carried objects through
 portals, portal faces not showing stale views, objects settling, clean console.
@@ -322,6 +322,25 @@ marking player another way to know where they are, which is the loop.
 nodes; keep room tone and hum monophonic.
 **Size.** Small–medium. High confidence.
 
+
+### C3 · The score — **done, 2026-08-29**
+**Claim.** Everything in this document has pushed towards silence, and the
+reason was always the same: an ever-present layer is furniture. That is an
+argument against *background* music, not against music. A score that exists
+only as a reading of the player is not background — it is the same idea as the
+vision pass, one register over. The defect is in the person looking; the music
+is in the person listening.
+**Smallest version.** A Carpenter ostinato that only exists while you are
+walking, over a bed that goes after sixteen seconds of nothing happening, with
+every interaction varying it and every room owning a chord.
+**How you'll know.** Watch someone stop walking. If they stop *again*, on
+purpose, to check, it is working. The second tell is a player who says a room
+"sounds like" somewhere they have been.
+**Kill if.** It plays under everything regardless of what the player does, or
+anything in it lands on a fold. Either failure turns it back into furniture,
+and the second one hands the building over.
+**Size.** Medium. One file, no new draw calls.
+
 ### D1 · Something you have to find
 **Claim.** §2 says the loop is already object-centred, so gating with an object
 is consistent rather than bolted on.
@@ -423,6 +442,7 @@ actual product of the plan.
 
 | date | experiment | verdict | why |
 |---|---|---|---|
+| 2026-08-29 | **C3 — the score** | **for Mick to judge** | Mick's direction: a generative Carpenter soundtrack tied to what the player does, unsettling and distorted, and visualised. The design question was not what it should sound like, it was how it survives the argument that killed the room tone and the hum — *when nothing is happening, nothing is happening*. So the score has no existence of its own: it is a reading of the player, and standing still and touching nothing takes the pulse out in about two seconds and the bed after sixteen, to digital zero — measured, not asserted. Walking is why the ostinato exists at all and **every eighth footstep rewrites one note of the figure**, so what you are hearing is something you walked into being. Taking an object gives you a note that sustains until you put it down. Throwing one is a dissonant cluster; an impact is an accent quantised to the next sixteenth, so a bucket falling downstairs lands *in* the bar; a door moves the harmony, because a door is the strongest instrument in the building. **Every room owns a chord**, hashed from its key and the seed, so the front room sounds like the front room every time — the §2 marking behaviour, in the register nobody is watching. Metre is 5/4 or 7/8 by seed, the mode is aeolian or phrygian, and the whole mix runs through a modulated delay so it is never quite in tune with itself. Structure borrowed from `arpbient` main — one bus, a lookahead scheduler, dumb voice layers — with the drone, the dissonant clusters, the ring modulation and the Shepard glide from its `v4-horror` branch. Measured on seed 424242: silent 0.000 peak, standing 0.100 / 37Hz, walking 0.301 / 430Hz, a long way in 0.362 / 351Hz. Wired to the picture — a note lifts every lamp a few per cent and pushes the perception pass, the weight underneath closes the field of view in and thickens the fog, a bell pulls the colour apart and lengthens the after-image — and all of it is exactly zero until the music starts, so the pixel A/B against the previous build is 0.00%. **Crossing a fold is silent and nothing in the score may line up with one**: depth is eased over seconds and the Shepard glide fires on a random delay, and there is a check that the score has no event for a portal at all. |
 | 2026-08-29 | **`npm run perf` had been measuring the wrong render** | fixed | Found while taking the before-and-after numbers C3 required. `renderer.info` is reset by every `render()` call, and since the vision pass landed the last thing drawn before the probe reads the counts has been its own fullscreen triangle — so every room in every seed reported **1 draw call and 1 triangle**, and the budget could not fail. It had been passing vacuously for a day. The probe now loads with `?nofx=1`, which puts the scene render last again and restores what these counts have always meant. Worst room across the five seeds is 268 calls / 10,984 triangles, against a budget of 360 / 15,000. The lesson is the one from the tape: an instrument that reports a plausible number is worse than one that reports nothing, and the control to run is the one that should *fail*. |
 | 2026-08-27 | **baseline — v0.2 as played** | works | Played on real hardware. Does what it is supposed to do; a genuinely weird experience. This is the control condition every later experiment is judged against — if a change makes it *more* interesting but *less* weird, it has failed. |
 | 2026-08-27 | **observed play loop** | finding | Players work out the architecture is impossible, then place objects in rooms as markers to tell whether they have been there, then realise what is happening. Undesigned and emergent. Recorded in full as §2; it reorders the plan, kills A3, and creates A4. |

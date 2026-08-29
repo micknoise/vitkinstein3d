@@ -136,7 +136,11 @@ Each requirement has an acceptance test an operator can run by hand.
 | **F35** | Every surface is procedurally generated at load with derived normal maps — no image files anywhere. | Stand close to concrete. There is grain, stain and relief. |
 | **F36** | Lighting is entirely practical: bulbs, tubes and standard lamps, all visible in the scene, warm indoors, cold in passages and kitchens. | Look up. |
 | **F37** | Film grain and vignette at all times. | Any screenshot. |
-| **F38** | Sound is generated at runtime: room tone, mains hum, footsteps, impacts, door creaks, a drop as you pass through a portal, and an occasional distant thump from a part of the building you have not found. | Play with sound on for a minute. |
+| **F38** | Sound is generated at runtime and drawn into buffers at load: footsteps by floor, impacts by material, and an occasional distant thump from a part of the building you have not found. There is no room tone, no mains hum, no door creak and no sound at a portal — when nothing is happening, nothing is happening. | Play with sound on for a minute, then stand still and listen to the silence. |
+| **F39** | **There is a score, and it has no existence of its own.** It is a reading of what the player is doing. Standing still and touching nothing takes the pulse out within about two seconds and the bed under it after sixteen, leaving silence. | Walk, then stop, and wait. |
+| **F39a** | Every interaction varies it. Walking is why the pulse exists at all, and every eighth footstep rewrites one note of the figure. Taking an object gives you a note that sustains until you put it down; throwing one is a dissonant cluster; an impact is an accent quantised to the next sixteenth; a door moves the harmony. Looking about quickly widens the detune and opens the filter. | Walk a while, then take something, carry it, throw it, and open a door. |
+| **F39b** | Every room owns a chord, hashed from its key and the seed, so a room sounds the same every time you are in it however you got there — the register a player marking rooms is not watching. Nothing in the score answers to a portal: crossing a fold is silent, and everything depth drives is eased over seconds so nothing in the music can be lined up with a crossing. | Leave a room and come back to it. Then cross a fold and listen for anything at all. |
+| **F39c** | The score drives the picture. A note lifts every lamp in the room a few per cent and pushes the perception pass; the weight underneath closes the field of view in and thickens the fog; a bell pulls the colour apart and leaves a longer after-image. All of it is exactly zero until the music starts, so a build with the score renders identically to one without. | `npm run compare` two builds with `?nofx=1`; `?nomusic=1` turns the score off. |
 
 ---
 
@@ -153,6 +157,7 @@ Each requirement has an acceptance test an operator can run by hand.
 | **F37b** | Rooms sound like their size and their surfaces: a warehouse rings, a carpeted box room is dead. A sound made in another room loses its top end, and more of it the further away that room is. | Drop the same object in the warehouse and in a box room. Then stand in a doorway and listen to the room you are not in. |
 | **N5a** | Sound is positional: an impact, a door and the distant thump are heard from where they happen, and turn around you as you turn. The room tone and the mains hum are not positional, being the room itself. | Put on headphones, drop something to one side and turn on the spot. |
 | **N6** | The cost does not creep back. `npm run perf` reports draw calls and triangles per room and exits non-zero above a stated budget — 360 draw calls and 15,000 triangles per room, 720 geometries and 26 programs in the scene. It loads the page with `?nofx=1`, because `renderer.info` is reset by every `render()` call and the perception pass would otherwise be the last thing drawn before the numbers are read. | `npm run perf all` across the five test seeds. |
+| **N8** | The score can be measured rather than described: it renders itself offline into a buffer at any named state, and reports peak, RMS and spectral centroid. The test suite asserts that standing still is quieter than walking, that stopping goes to digital zero, and that all of it is low. | `npm run music`, which also writes the wav out to listen to. |
 | **N7** | A seed reproduces a building exactly, surfaces included: the same number gives the same layout, the same wear and the same cracks in the same plaster. | Load `?seed=424242` twice and compare. `npm run compare` and `npm run diff` do it by pixel. |
 | **N5** | Chromium, Firefox, Safari on desktop. Pointer lock makes it desktop-only by design. | Two of the three. |
 
@@ -256,4 +261,5 @@ rendering, `VK.openAll()` opens every door, `VK.spaces` is the plan, `VK.count()
 | Doors | F25–F27 | | |
 | The world | F28–F30 | | |
 | Surfaces and atmosphere | F31–F38 | | |
-| Non-functional | N1–N7 | | |
+| The score | F39–F39c | | |
+| Non-functional | N1–N8 | | |

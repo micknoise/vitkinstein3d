@@ -9,12 +9,13 @@ method, and it is where results get written down.
 ```sh
 npm install
 npm run build                 # src/ + three + cannon-es  ->  index.html
-npm test                      # 53 checks x 5 seeds, headless; must be green
+npm test                      # 63 checks x 5 seeds, headless; must be green
 npm test 424242               # one seed
 npm run perf                  # draw calls / triangles / lights per room
 npm run perf all              # ...across all five test seeds
                               # both exit 1 above the budget in perf-probe.js
 npm run shots 424242          # a screenshot of every room and every portal
+npm run music 424242          # draws that house's score to wav, and measures it
 npm run compare -- old.html shots/before 424242 '&pr=1'
 npm run diff shots/before shots/after   # 0.00% between two runs of one build
 ```
@@ -38,6 +39,7 @@ scope and there are no imports. Load order matters.
 | `src/25-portal.js` | portal rendering and traversal |
 | `src/30-player.js` | the body, the hands, the doors |
 | `src/35-vision.js` | perception: grain, warp, periphery and after-images, by depth |
+| `src/38-music.js` | the score: generated, played by what the player does, and wired to the picture |
 | `src/40-main.js` | sound, screen, the frame loop, the light pool, visibility |
 
 **Everything random must come from `05-rng.js`,** never `Math.random()`, or
@@ -71,10 +73,12 @@ generated building and a hand-written one are the same kind of thing.
 
 `window.VK` — `go(x,y,z,yaw,pitch)`, `goSpace(key)`, `aimAt(x,y,z)`,
 `tick(n)` (physics without rendering), `openAll()`, `grab()/hurl()`,
-`spaces`, `count()`, `info()`, `PORTALS`, `renderer`.
+`spaces`, `count()`, `info()`, `PORTALS`, `renderer`, `music`
+(`music.info()`, `music.render(sec, state)` — offline, refuses while playing).
 
 URL flags: `?seed=N`, `?perf=1`, `?pr=N` (pin pixel ratio), `?nograin=1`,
-`?nodrift=1` (stop rooms changing behind you), `?nofx=1` (raw render), `?fx=N` (perception pass gain, 1 is default).
+`?nodrift=1` (stop rooms changing behind you), `?nofx=1` (raw render), `?fx=N` (perception pass gain, 1 is default),
+`?nomusic=1` (no score).
 `VK.pinDose(0..1)` pins how far in the pass thinks you are; `VK.pinDose(null)` releases it.
 
 ## House rules
@@ -87,6 +91,9 @@ URL flags: `?seed=N`, `?perf=1`, `?pr=N` (pin pixel ratio), `?nograin=1`,
   stay silent.
 - Grabbable objects stay individual and dependable. They are what players use to
   navigate; do not merge, pool or stabilise them away.
+- **The score is a reading of the player, not of the house.** It stops when they
+  stop, it never announces a fold, and every value it hands the renderer is zero
+  while it is silent. Anything that makes it play regardless makes it furniture.
 - **Trunk only — no experiment branches.** One experiment per commit, on `main`,
   pushed as soon as `npm test` is green: GitHub Pages serves `main`, and playing
   it is how an experiment gets judged. Revert is the undo. Record the verdict in

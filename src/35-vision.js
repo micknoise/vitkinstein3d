@@ -65,6 +65,14 @@ const FINAL_FRAG = `
   uniform float time;
   uniform float dose;        // 0 at the door you came in by, 1 a long way in
   uniform float gain;        // ?fx=N, so this can be judged on the machine it is played on
+  // What you can hear, arriving in what you can see (38-music.js). A note of
+  // the ostinato, the weight underneath it, and the shine off a bell or a
+  // stab. All three are zero until the score starts, and every term they
+  // appear in multiplies by them, so a build with music renders identically to
+  // one without until somebody presses play.
+  uniform float mPulse;
+  uniform float mSub;
+  uniform float mShine;
   varying vec2 vUv;
 
   float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -99,13 +107,15 @@ const FINAL_FRAG = `
     // edges -- fine on a laptop screen at arm's length, where the edges are
     // most of your visual field, and invisible on a monitor you sit back from
     // and look at the middle of.
-    float amp = (0.0034 + 0.0092 * dose) * (0.80 + 1.30 * r2) * gain;
+    float amp = (0.0034 + 0.0092 * dose) * (0.80 + 1.30 * r2) * gain
+              * (1.0 + 0.55 * mPulse + 0.30 * mSub);
     vec2 suv = uv + warp * amp;
 
     // --- the periphery softens and lets go --------------------------------
     // A handful of taps on a ring that opens up towards the edge of vision.
     // and it does not start at zero in the middle either
-    float blur = (0.9 + 3.2 * dose) * gain * (0.16 + 0.94 * smoothstep(0.0, 0.26, r2)) / res.y;
+    float blur = ((0.9 + 3.2 * dose) * gain * (0.16 + 0.94 * smoothstep(0.0, 0.26, r2))
+                + 2.1 * mShine) / res.y;
     vec3 col = vec3(0.0);
     float wsum = 0.0;
     for (int i = 0; i < 6; i++) {
@@ -129,18 +139,18 @@ const FINAL_FRAG = `
     vec2 gp = uv * res * 0.9;
     float g1 = hash(floor(gp) + floor(time * 24.0) * 13.7) - 0.5;
     float g2 = hash(floor(gp * 0.45) + floor(time * 11.0) * 41.3) - 0.5;
-    col += (g1 * 0.62 + g2 * 0.38) * (0.090 + 0.130 * dose) * gain;
+    col += (g1 * 0.62 + g2 * 0.38) * ((0.090 + 0.130 * dose) * gain + 0.060 * mPulse);
 
     // --- the room is not quite the colour it was --------------------------
     float lum = dot(col, vec3(0.299, 0.587, 0.114));
     float sway = fbm(uv * 1.6 + vec2(time * 0.07, -time * 0.05)) - 0.5;
-    col = mix(vec3(lum), col, 1.0 + gain * (0.16 + dose * (0.55 + 0.8 * sway)));
+    col = mix(vec3(lum), col, 1.0 + gain * (0.16 + dose * (0.55 + 0.8 * sway)) + 0.35 * mShine);
 
     // --- and it closes in -------------------------------------------------
     // It closes in, but you can still see: at 0.76 with a reach of 0.46 the
     // deep rooms came out as a black rectangle with grain on it, which is not
     // a narrowing field of view, it is a fade to black.
-    float vig = (0.30 + 0.24 * dose) * mix(1.0, gain, 0.5);
+    float vig = (0.30 + 0.24 * dose) * mix(1.0, gain, 0.5) + 0.085 * mSub;
     float reach = mix(1.00, 0.62, dose);
     col *= 1.0 - vig * smoothstep(0.06, reach, r2);
 
@@ -242,7 +252,8 @@ function initVision() {
       tex: { value: accumRT.texture },
       res: { value: new THREE.Vector2(size.x, size.y) },
       time: { value: 0 }, dose: { value: DOSE_AT_START },
-      gain: { value: FX_GAIN }
+      gain: { value: FX_GAIN },
+      mPulse: { value: 0 }, mSub: { value: 0 }, mShine: { value: 0 }
     },
     vertexShader: FX_VERT, fragmentShader: FINAL_FRAG, depthTest: false, depthWrite: false
   });
@@ -273,9 +284,11 @@ function renderVision(t, dt, spaceKey) {
   renderer.clear();
   renderer.render(scene, camera);
 
-  // world + last frame -> accumulation
+  // world + last frame -> accumulation. A bell smears: the after-image holds
+  // on for longer while one is ringing.
+  const mf = Music.fx;
   accumMat.uniforms.prev.value = prevRT.texture;
-  accumMat.uniforms.trail.value = 0.25 + 0.52 * d;
+  accumMat.uniforms.trail.value = Math.min(0.92, 0.25 + 0.52 * d + 0.16 * mf.shine);
   fxMesh.material = accumMat;
   renderer.setRenderTarget(accumRT);
   renderer.render(fxScene, fxCam);
@@ -284,6 +297,9 @@ function renderVision(t, dt, spaceKey) {
   finalMat.uniforms.tex.value = accumRT.texture;
   finalMat.uniforms.time.value = t;
   finalMat.uniforms.dose.value = d;
+  finalMat.uniforms.mPulse.value = mf.pulse;
+  finalMat.uniforms.mSub.value = mf.sub;
+  finalMat.uniforms.mShine.value = mf.shine;
   fxMesh.material = finalMat;
   renderer.setRenderTarget(null);
   renderer.render(fxScene, fxCam);

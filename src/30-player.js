@@ -118,13 +118,15 @@ function tryGrab() {
   held.angularDamping = 0.85;
   heldDist = Math.min(1.1, Math.max(0.7, hit.distance * 0.8));
   Audio.blip(320, 0.04, 0.06);
+  // and you are now carrying a note as well as a mug
+  Music.event('grab', { mass: held.mass, size: held.sndSize, cls: held.sndClass });
 }
 
 function release(thrown) {
   if (!held) return;
   held.allowSleep = true; held.angularDamping = 0.2;
   held = null;
-  if (!thrown) Audio.blip(190, 0.05, 0.05);
+  if (!thrown) { Audio.blip(190, 0.05, 0.05); Music.event('drop'); }
 }
 
 function throwHeld() {
@@ -133,6 +135,7 @@ function throwHeld() {
   held.velocity.set(dir.x * power * 2.2, dir.y * power * 2.2 + 1.0, dir.z * power * 2.2);
   held.angularVelocity.set(rnd(-3, 3), rnd(-3, 3), rnd(-3, 3));
   Audio.blip(140, 0.09, 0.09);
+  Music.event('throw');
   release(true);
 }
 
@@ -198,6 +201,7 @@ function tryDoor() {
   const d = h.object.userData.door;
   if (!d) return;
   d.open = !d.open;
+  Music.event('door', { open: d.open });
 }
 
 function updateDoors(dt) {
@@ -270,6 +274,9 @@ function updatePlayer(dt) {
   if (grounded && stepAccum > 0.78) {
     stepAccum = 0;
     Audio.step(SPACES[currentSpace] ? SPACES[currentSpace].floor : null);
+    // every eighth footstep rewrites one note of the figure, so what you are
+    // hearing is a thing you walked into being
+    Music.event('step');
   }
 }
 

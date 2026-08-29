@@ -80,9 +80,10 @@ house, reached through an internal wall.
 ```sh
 npm install
 npm run build      # bundles three.js, cannon-es and src/ into index.html
-npm test           # 25 checks against 5 different seeds, headless
+npm test           # 63 checks against 5 different seeds, headless
 npm run perf       # draw calls and triangles per room; fails over budget
 npm run shots 1234 # renders every room and every portal of that building
+npm run music 1234 # draws that house's score to wav, and measures it
 ```
 
 `index.html` is the build output and is committed, so GitHub Pages serves it directly. There is no
@@ -100,6 +101,7 @@ build step for anyone who just wants to play it.
 | `src/25-portal.js` | portal rendering and traversal |
 | `src/30-player.js` | the body, the hands, the doors |
 | `src/35-vision.js` | perception: one full-screen pass, driven by how far in you are |
+| `src/38-music.js` | the score: generated, and played by what you do |
 | `src/40-main.js` | sound, screen, loop |
 | `shell.html` | the page the build is injected into |
 | `SPECIFICATION.md` | what it is meant to do, as a checklist someone can assess it against |
@@ -130,6 +132,36 @@ breadth-first steps from the room you woke up in, and a portal counts double:
 you have not walked further, but you have been taken further.  shows
 the raw render.
 
+## The score
+
+There is music, and it has no existence of its own. It is a reading of what you
+are doing, and if you stand still and touch nothing it stops — the ostinato
+inside two seconds, the bed under it after sixteen, and then the building is as
+quiet as it was before you arrived.
+
+Everything you do is in it. Walking is the only reason the pulse exists at all,
+and every eighth footstep rewrites one note of the figure, so what you are
+hearing is something you walked into being. Taking an object gives you a note to
+carry and putting it down ends it. Throwing one is a dissonant cluster. A door
+moves the harmony, because a door is the strongest instrument in the building.
+Every room owns a chord, hashed from its name and the seed, so the front room
+sounds like the front room every time you are in it — which is exactly the
+evidence somebody marking rooms with mugs is trying to collect. The further in
+you are, the slower, darker and heavier it gets, and a long way in something
+starts climbing that never arrives anywhere.
+
+Crossing a fold makes no sound at all, and nothing in the score is allowed to
+line up with one.
+
+It is wired into the picture: a note of the ostinato lifts every lamp in the
+room a few per cent and pushes the perception pass, the weight underneath closes
+the field of view in and thickens the fog, and a bell pulls the colour apart and
+leaves a longer after-image. All of it is exactly zero until the music starts,
+so a build with the score renders the same pixels as one without.
+
+`?nomusic=1` turns it off. `npm run music` draws it to a wav so it can be
+listened to away from the game, and prints how loud and how dark it is.
+
 ## Keeping it fast
 
 The building is drawn a room at a time. Rooms are groups, and only the one you are in, the ones it
@@ -150,7 +182,7 @@ so none of this quietly comes undone.
 - One storey, axis-aligned rooms. There are stairs, but no upstairs — the door at the top of a
   flight is a portal back to the ground floor.
 - No inventory and no gating yet: everything is takeable and nothing is required.
-- Sound is monophonic — the distant thump is distant in timbre only.
+- The score is stereo but not positional: it happens to you, not in the building.
 
 ## Built with
 

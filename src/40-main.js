@@ -23,6 +23,9 @@ const Audio = (() => {
 
     renderSFX();
     scheduleFar();
+    // The score shares this context and this bus -- one AudioContext, one
+    // master, so the music is mixed against the building rather than over it.
+    Music.start(ctx, master);
   }
 
   function scheduleFar() {
@@ -420,9 +423,11 @@ function init() {
   for (const { body } of dynamicPairs) {
     body.addEventListener('collide', e => {
       const v = e.contact.getImpactVelocityAlongNormal();
-      if (Math.abs(v) > 1.2)
+      if (Math.abs(v) > 1.2) {
         Audio.impact(Math.abs(v), body.mass, [body.position.x, body.position.y, body.position.z],
                      body.sndClass, body.sndSize);
+        Music.event('impact', { v: Math.abs(v), mass: body.mass, cls: body.sndClass });
+      }
     });
   }
 
@@ -468,6 +473,7 @@ function init() {
     get scene() { return scene; }, get camera() { return camera; },
     get world() { return world; }, get spaces() { return SPACES; },
     MAT, PROPS, doors, PORTALS, Audio,
+    music: Music,
     get dose() { return dose; },
     doseFor, roomDepths, pinDose,
     get deepest() { return _deepest; },
@@ -556,7 +562,9 @@ function updateSpace() {
   targetFog = sp.fog;
   if (sp.key === currentSpace) return;
   currentSpace = sp.key;
+  const seenBefore = _visited.has(sp.key);
   _visited.add(sp.key);
+  Music.event('room', { key: sp.key, seen: seenBefore });
   const label = SPACES[sp.key].label;
   if (label && label !== '—' && prompt) showPrompt(label, 2600);
   Audio.setTone(SPACES[sp.key]._type === 'warehouse' ? 0.13 : 0.09);
@@ -583,12 +591,19 @@ function pickLights(pos) {
   return _cand;
 }
 
+// Every lamp in the pool is scaled by the score: a note lifts the room a few
+// per cent and the weight underneath pulls it down again. It is well below
+// what reads as a light doing something -- it reads as the room having a
+// pulse. Exactly 1 when the music is not running, so a build with the score in
+// it renders the same pixels as one without.
+let musicLight = 1;
+
 function writeSlot(i, src) {
   const l = LIGHT_POOL[i];
   if (!src) { l.intensity = 0; return; }
   l.position.copy(src.pos);
   l.color.copy(src.color);
-  l.intensity = src.intensity;
+  l.intensity = src.intensity * musicLight;
   l.distance = src.distance;
   l.decay = src.decay;
 }
@@ -837,10 +852,18 @@ function animate() {
 
   updateSpace();
   if (frozenAt !== null) scene.fog.density = targetFog;
-  else scene.fog.density += (targetFog - scene.fog.density) * 0.03;
+  else scene.fog.density += (targetFog * (1 + 0.05 * Music.fx.sub) - scene.fog.density) * 0.03;
 
   // the ears go where the eyes are
   Audio.listen(camera.getWorldPosition(_earPos), camera.getWorldDirection(_earFwd), _earUp);
+
+  // and the score reads what you are doing: how fast you are going, how much
+  // you are looking about, and how far in you are. See 38-music.js.
+  Music.update(dt, {
+    speed: Math.hypot(playerBody.velocity.x, playerBody.velocity.z),
+    yaw, dose
+  });
+  musicLight = 1 + Music.fx.pulse * 0.09 - Music.fx.sub * 0.045;
 
   updateHover();
   if (hoverTarget !== shownHover) {

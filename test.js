@@ -17,6 +17,58 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
     await p.waitForFunction(() => !!window.VK, null, { timeout: 60000 });
     await p.evaluate(() => document.getElementById('title').style.display = 'none');
 
+    // --- the score (38-music.js) ---------------------------------------------
+    //
+    // Run before anything starts the audio, because two things here depend on
+    // it: that the music has made no sound and moved no pixel yet, and that
+    // the offline render can have the graph to itself.
+    const score = await p.evaluate(async () => {
+      const at_load = VK.music.info();
+      const keys = Object.keys(VK.spaces);
+      const first = keys.map(k => VK.music.degreeOf(k));
+      const again = keys.map(k => VK.music.degreeOf(k));
+      const takes = {};
+      for (const [name, st] of [
+        ['gone',    { motion: 0, unease: 0, depth: 0.3, presence: 0 }],
+        ['still',   { motion: 0, unease: 0, depth: 0.3, presence: 1 }],
+        ['walking', { motion: 1, unease: 0.1, depth: 0.35, presence: 1 }]
+      ]) {
+        const m = await VK.music.render(6, st);
+        takes[name] = { peak: m.peak, rms: m.rms, centroid: m.centroid };
+      }
+      return { at_load, keys, first, again, takes,
+               distinct: new Set(first).size,
+               fold: at_load.kinds.filter(k => /fold|portal|through|cross/.test(k)) };
+    });
+    assert(!score.at_load.running &&
+           score.at_load.fx.pulse === 0 && score.at_load.fx.sub === 0 &&
+           score.at_load.fx.shine === 0 && score.at_load.fx.tension === 0,
+      'the score is silent until it is started, and moves no pixel until it is');
+    assert(score.at_load.root >= 40 && score.at_load.root <= 47 &&
+           [14, 16, 20].indexOf(score.at_load.metre) >= 0 && score.at_load.onsets >= 3,
+      'the house has a tune of its own (' + score.at_load.mode + ' on ' + score.at_load.root +
+      ', ' + score.at_load.metre + '/16 at ' + score.at_load.bpm + 'bpm, ' + score.at_load.onsets + ' notes)');
+    // Players mark rooms to find out whether they have been in them (PLAN §2).
+    // A room that sounded different every time you walked into it would be a
+    // marker that lies, in the one register they are not watching.
+    assert(String(score.first) === String(score.again) && score.distinct >= 2,
+      'every room owns a chord, and it is the same chord every time (' +
+      score.distinct + ' different across ' + score.keys.length + ' rooms)');
+    // The one thing the score may never do. Everything about a crossing is
+    // built to go unnoticed; a chord change at the moment of it would hand the
+    // whole building over.
+    assert(score.fold.length === 0,
+      'and nothing in it answers to a fold, which has to be silent');
+    assert(score.takes.gone.peak === 0,
+      'stop moving and touch nothing and it stops -- properly, to zero');
+    assert(score.takes.walking.peak > score.takes.still.peak * 1.8,
+      'walking is louder than standing (' + score.takes.walking.peak + ' vs ' + score.takes.still.peak + ')');
+    assert(score.takes.walking.peak < 0.55 && score.takes.walking.rms < 0.16,
+      'and none of it is loud (peak ' + score.takes.walking.peak + ', rms ' + score.takes.walking.rms + ')');
+    assert(score.takes.still.centroid < 120 && score.takes.walking.centroid < 700,
+      'and all of it is low (' + score.takes.still.centroid + 'Hz standing, ' +
+      score.takes.walking.centroid + 'Hz walking)');
+
     // --- the building ------------------------------------------------------
     const plan = await p.evaluate(() => {
       const rooms = Object.entries(VK.spaces).map(([k, s]) => ({
@@ -388,6 +440,31 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
     if (banks.near !== null && banks.away !== null)
       assert(banks.same > banks.near && banks.near > banks.away,
         'a sound loses its top end through a wall (' + banks.same + ' / ' + banks.near + ' / ' + banks.away + 'Hz)');
+
+    // --- and what you do with your hands gets into it ------------------------
+    // The score is started by now. A note is queued to the next sixteenth
+    // rather than played the instant you click, so this has to wait for one.
+    const played = await p.evaluate(async () => {
+      const sleep = ms => new Promise(r => setTimeout(r, ms));
+      const before = VK.music.info();
+      for (let i = 0; i < 9; i++) VK.music.event('step');
+      VK.music.event('grab', { mass: 0.4, size: 0.16, cls: 'ceramic' });
+      let shine = 0;
+      for (let i = 0; i < 14; i++) { await sleep(60); shine = Math.max(shine, VK.music.fx.shine); }
+      const holding = VK.music.info();
+      VK.music.event('drop');
+      await sleep(900);
+      const empty = VK.music.info();
+      return { before, holding, empty, shine: +shine.toFixed(3) };
+    });
+    assert(played.holding.carrying && !played.empty.carrying,
+      'taking something gives you a note to carry, and putting it down ends it');
+    // What the picture is given is booked for the moment the sound will
+    // actually land, and a swell books its arrival two seconds ahead of a note
+    // played after it. Anything reading that queue in order alone shows
+    // nothing for two seconds and then everything at once.
+    assert(played.shine > 0.05,
+      'and the bell reaches the picture as well as the ear (' + played.shine + ')');
 
     // --- the house changes behind your back, and only its own things (A1a) ---
     const drift = await p.evaluate(() => {
