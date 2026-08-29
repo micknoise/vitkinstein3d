@@ -492,6 +492,44 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
     assert(played.shine > 0.05,
       'and the bell reaches the picture as well as the ear (' + played.shine + ')');
 
+    // --- and running from room to room does not pile it up ------------------
+    // Reported from play: the score drops out, and running between rooms
+    // builds up a stack of organs until the whole thing tops out. Two causes.
+    // The organ sustained for twelve seconds and could be started every bar
+    // plus once per door with nothing stopping the last one, and every throb
+    // and every stab built a fresh WaveShaperNode with a 2048-point curve
+    // computed in JavaScript -- several a second, while the game was trying to
+    // hold a frame.
+    const stress = await p.evaluate(async () => {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      let shapers = 0;
+      const w0 = AC.prototype.createWaveShaper;
+      AC.prototype.createWaveShaper = function (...a) { shapers++; return w0.apply(this, a); };
+      try {
+        const sleep = ms => new Promise(r => setTimeout(r, ms));
+        const keys = Object.keys(VK.spaces);
+        let pads = 0, squash = 0;
+        const made0 = VK.music.info().made;
+        for (let i = 0; i < 24; i++) {
+          VK.music.event('room', { key: keys[i % keys.length], seen: false });
+          if (i % 3 === 0) VK.music.event('door', { open: i % 2 === 0 });
+          for (let k = 0; k < 3; k++) {
+            await sleep(50);
+            const inf = VK.music.info();
+            pads = Math.max(pads, inf.pads);
+            squash = Math.min(squash, inf.squash);
+          }
+        }
+        return { pads, shapers, squash, made: VK.music.info().made - made0 };
+      } finally { AC.prototype.createWaveShaper = w0; }
+    });
+    assert(stress.pads <= 1,
+      'running from room to room never leaves two organs sounding at once (worst ' + stress.pads + ')');
+    assert(stress.shapers === 0,
+      'and builds no new distortion curves while it plays (' + stress.shapers + ')');
+    assert(stress.squash > -14,
+      'so the limiter never has to take the whole score away (worst ' + stress.squash + ' dB)');
+
     // --- the house changes behind your back, and only its own things (A1a) ---
     const drift = await p.evaluate(() => {
       const T = VK.THREE;

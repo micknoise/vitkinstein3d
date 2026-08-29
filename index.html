@@ -16887,8 +16887,19 @@ const Music = (() => {
   let ctx = null, running = false, timer = null;
   let bus, dry, wow, wowLfo, wowDepth, grit, gritIn, tilt, comp, outGain, duck;
   let revSend, revReturn, delIn, delOut;
-  let throbBus, padBus, metalBus, bedBus, bedGate;
+  let throbBus, padBus, metalBus, bedBus, bedGate, throbDrive, stabDrive;
   let bedNodes = null, carried = null, glideUntil = 0, glideAt = 1e9;
+  // The organ is the one voice here that sustains for longer than the gap
+  // between the events that start it, so it is the one that has to be counted.
+  // Running from room to room used to stack a fresh twelve-second swell every
+  // bar, on top of one per door, until the limiter had nothing left to give
+  // and the whole score ducked away to nothing.
+  const padVoices = [];
+  let lastSwellAt = -99, made = 0;
+
+  // Every oscillator in here goes through this, so how much the score is
+  // actually making can be measured rather than guessed at.
+  function mkOsc() { made++; return ctx.createOscillator(); }
 
   let nextStep = 0, stepNo = 0, notes = 0;
   let chord = 0, wantChord = 0;
@@ -16919,7 +16930,7 @@ const Music = (() => {
 
     wow = ctx.createDelay(0.1);
     wow.delayTime.value = 0.009;
-    wowLfo = ctx.createOscillator(); wowLfo.type = 'sine'; wowLfo.frequency.value = 0.23;
+    wowLfo = mkOsc(); wowLfo.type = 'sine'; wowLfo.frequency.value = 0.23;
     wowDepth = ctx.createGain(); wowDepth.gain.value = 0.0009;
     wowLfo.connect(wowDepth); wowDepth.connect(wow.delayTime); wowLfo.start();
 
@@ -16984,6 +16995,24 @@ const Music = (() => {
     metalBus = layer(1.00, 0.45);
     bedBus   = layer(0.40, 0);
 
+    // One shaper for the throb and one for the stabs, built once. The first
+    // version made a WaveShaperNode -- and computed a 2048-point curve in
+    // JavaScript -- for every note, several times a second, which is a great
+    // deal of garbage to be making while a game is trying to hold a frame.
+    // Drive is now the gain in front of a fixed curve, which is how a
+    // distortion pedal does it anyway, and it can be an AudioParam that moves
+    // smoothly instead of a new curve each time. It also sounds better: one
+    // shaper for all the voices means they distort into each other.
+    throbDrive = ctx.createGain(); throbDrive.gain.value = 1;
+    const throbShape = shaper(3.0);
+    const throbMakeup = ctx.createGain(); throbMakeup.gain.value = 0.72;
+    throbDrive.connect(throbShape); throbShape.connect(throbMakeup); throbMakeup.connect(throbBus);
+
+    stabDrive = ctx.createGain(); stabDrive.gain.value = 1;
+    const stabShape = shaper(4);
+    const stabMakeup = ctx.createGain(); stabMakeup.gain.value = 0.8;
+    stabDrive.connect(stabShape); stabShape.connect(stabMakeup); stabMakeup.connect(metalBus);
+
     // the stutter sits between the drone and its own level, so a flicker
     // chops the drone and leaves its reverb tail ringing on underneath
     bedGate = ctx.createGain(); bedGate.gain.value = 1;
@@ -17040,16 +17069,15 @@ const Music = (() => {
   // figure with pitches in it is a tune, and a tune is something to enjoy.
   function throb(t, level, hard) {
     const f = mtof(HOUSE.root - 12);
-    const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = f;
-    const w = ctx.createOscillator(); w.type = 'sawtooth'; w.frequency.value = f;
+    const o = mkOsc(); o.type = 'sine'; o.frequency.value = f;
+    const w = mkOsc(); w.type = 'sawtooth'; w.frequency.value = f;
     w.detune.value = mrr(-14, 14);
     const wg = ctx.createGain(); wg.gain.value = 0.34 + 0.3 * M.depth;
     const flt = ctx.createBiquadFilter(); flt.type = 'lowpass'; flt.Q.value = 7;
-    const sh = shaper(2.2 + 5 * M.depth + 3 * M.unease);
     const env = ctx.createGain(); env.gain.value = 0.0001;
 
     o.connect(flt); w.connect(wg); wg.connect(flt);
-    flt.connect(sh); sh.connect(env); env.connect(throbBus);
+    flt.connect(env); env.connect(throbDrive);
 
     const dec = hard ? 0.34 : 0.20;
     flt.frequency.setValueAtTime(hard ? 900 : 520, t);
@@ -17069,25 +17097,44 @@ const Music = (() => {
   // fundamental, the octave, the twelfth and the two-octave, each doubled a
   // few cents out so it beats against itself. Very wet -- it is a long way
   // down a corridor, not in the room.
+  // Whatever organ is already sounding is taken away as this one arrives.
+  // There is only ever one chord: rooms do not stack, and a player running
+  // through five of them hears five chords, not five chords at once.
+  function killPads(t, fade) {
+    for (const v of padVoices) {
+      for (const e of v.env) { e.gain.cancelScheduledValues(t); e.gain.setTargetAtTime(0.0001, t, fade / 3); }
+      for (const o of v.osc) { try { o.stop(t + fade + 0.15); } catch (err) { /* already stopped */ } }
+    }
+    padVoices.length = 0;
+  }
+
   function swell(notes_, t, attack, hold, release, level, cutoff) {
+    killPads(t, 0.9);
+    lastSwellAt = t;
     const parts = [[1, 1], [0.55, 2], [0.26, 3], [0.30, 4], [0.12, 6]];
+    const rec = { env: [], osc: [] };
     notes_.forEach((midi, i) => {
       const f = mtof(midi);
       const flt = ctx.createBiquadFilter();
       flt.type = 'lowpass'; flt.frequency.value = cutoff + i * 40; flt.Q.value = 1.4;
       const env = ctx.createGain(); env.gain.value = 0.0001;
       flt.connect(env); env.connect(padBus);
+      rec.env.push(env);
       for (const [amp, mult] of parts) {
-        // three, not two, and one of them a long way out of tune: two voices
-        // beat, three grind
-        for (const det of [-5, 6, 17 * (0.4 + M.unease)]) {
+        // Two voices beat and three grind, so the fundamental gets a third a
+        // long way out of tune. The partials above it make do with two: at
+        // fifteen oscillators a note this was thirty per cent of everything
+        // the score was making, for a beat nobody can hear that high up.
+        const dets = mult === 1 ? [-5, 6, 17 * (0.4 + M.unease)] : [-5, 6];
+        for (const det of dets) {
           if (f * mult > 7000) continue;
-          const o = ctx.createOscillator();
+          const o = mkOsc();
           o.type = 'sine'; o.frequency.value = f * mult;
           o.detune.value = det;
           const g = ctx.createGain(); g.gain.value = amp * (Math.abs(det) > 10 ? 0.28 : 0.5);
           o.connect(g); g.connect(flt);
           o.start(t); o.stop(t + attack + hold + release + 0.4);
+          rec.osc.push(o);
         }
       }
       env.gain.setValueAtTime(0.0001, t);
@@ -17095,6 +17142,7 @@ const Music = (() => {
       env.gain.setValueAtTime(level, t + attack + hold);
       env.gain.exponentialRampToValueAtTime(0.0001, t + attack + hold + release);
     });
+    padVoices.push(rec);
   }
 
   // A bell, and it is deliberately not in tune with itself: inharmonic
@@ -17107,7 +17155,7 @@ const Music = (() => {
     hp.connect(env); env.connect(metalBus);
     for (const [amp, mult] of [[1, 1], [0.42, 2.76], [0.24, 3.93], [0.11, 5.42]]) {
       for (const det of [0, 9 + M.unease * 11]) {
-        const o = ctx.createOscillator();
+        const o = mkOsc();
         o.type = 'sine'; o.frequency.value = f * mult; o.detune.value = det;
         const g = ctx.createGain(); g.gain.value = amp * (det ? 0.35 : 1);
         o.connect(g); g.connect(hp);
@@ -17124,8 +17172,8 @@ const Music = (() => {
   // driving: the sum and difference of two frequencies that are not related,
   // which is the sound of something metal that is not a note.
   function ring(f, t, ratio, level, decay) {
-    const c = ctx.createOscillator(); c.type = 'sine'; c.frequency.value = f;
-    const m = ctx.createOscillator(); m.type = 'sine'; m.frequency.value = f * ratio;
+    const c = mkOsc(); c.type = 'sine'; c.frequency.value = f;
+    const m = mkOsc(); m.type = 'sine'; m.frequency.value = f * ratio;
     const r = ctx.createGain(); r.gain.value = 0;
     const md = ctx.createGain(); md.gain.value = 1;
     m.connect(md); md.connect(r.gain); c.connect(r);
@@ -17147,12 +17195,11 @@ const Music = (() => {
   function stab(base, t, level) {
     for (const midi of [base, base + (mchance(0.5) ? 1 : 6), base + 11, base + 12]) {
       const f = mtof(midi);
-      const a = ctx.createOscillator(); a.type = 'sawtooth'; a.frequency.value = f; a.detune.value = -7;
-      const b = ctx.createOscillator(); b.type = 'sawtooth'; b.frequency.value = f; b.detune.value = 7;
+      const a = mkOsc(); a.type = 'sawtooth'; a.frequency.value = f; a.detune.value = -7;
+      const b = mkOsc(); b.type = 'sawtooth'; b.frequency.value = f; b.detune.value = 7;
       const flt = ctx.createBiquadFilter(); flt.type = 'lowpass'; flt.Q.value = 7;
-      const sh = shaper(4);
       const env = ctx.createGain(); env.gain.value = 0.0001;
-      a.connect(flt); b.connect(flt); flt.connect(sh); sh.connect(env); env.connect(metalBus);
+      a.connect(flt); b.connect(flt); flt.connect(env); env.connect(stabDrive);
       flt.frequency.setValueAtTime(4800, t);
       flt.frequency.exponentialRampToValueAtTime(420, t + 0.42);
       env.gain.setValueAtTime(0.0001, t);
@@ -17190,7 +17237,7 @@ const Music = (() => {
     for (let k = 0; k < 4; k++) {
       const w = Math.sin(Math.PI * (k + 0.5) / 4);
       const f0 = base * Math.pow(2, k);
-      const o = ctx.createOscillator(); o.type = 'sine';
+      const o = mkOsc(); o.type = 'sine';
       o.frequency.setValueAtTime(f0, t);
       o.frequency.exponentialRampToValueAtTime(Math.max(20, f0 * Math.pow(2, dir)), t + dur);
       const g = ctx.createGain(); g.gain.value = w;
@@ -17214,13 +17261,13 @@ const Music = (() => {
     const breath = ctx.createGain(); breath.gain.value = 1;
     mix.connect(sh); sh.connect(lp); lp.connect(breath); breath.connect(bedGate);
 
-    const amp = ctx.createOscillator(); amp.type = 'sine'; amp.frequency.value = 0.045;
+    const amp = mkOsc(); amp.type = 'sine'; amp.frequency.value = 0.045;
     const ampD = ctx.createGain(); ampD.gain.value = 0.34;
     amp.connect(ampD); ampD.connect(breath.gain); amp.start();
 
     // a second, faster amplitude LFO at a rate that is not a multiple of the
     // first, so the two never line up and it never settles into a pattern
-    const amp2 = ctx.createOscillator(); amp2.type = 'triangle'; amp2.frequency.value = 0.31;
+    const amp2 = mkOsc(); amp2.type = 'triangle'; amp2.frequency.value = 0.31;
     const ampD2 = ctx.createGain(); ampD2.gain.value = 0.16;
     amp2.connect(ampD2); ampD2.connect(breath.gain); amp2.start();
 
@@ -17231,12 +17278,12 @@ const Music = (() => {
       const f = mtof(HOUSE.root + semi);
       const g = ctx.createGain(); g.gain.value = g0;
       for (const det of [-6, 7]) {
-        const o = ctx.createOscillator(); o.type = 'sine';
+        const o = mkOsc(); o.type = 'sine';
         o.frequency.value = f; o.detune.value = det;
         o.connect(g); o.start(); osc.push(o);
       }
       if (saw > 0) {
-        const s = ctx.createOscillator(); s.type = 'sawtooth';
+        const s = mkOsc(); s.type = 'sawtooth';
         s.frequency.value = f; s.detune.value = 3;
         const sg = ctx.createGain(); sg.gain.value = saw;
         s.connect(sg); sg.connect(g); s.start(); osc.push(s);
@@ -17337,7 +17384,14 @@ const Music = (() => {
 
     if (bar === 0) {
       // the chord only ever moves on a bar line
-      if (wantChord !== chord) { chord = wantChord; soundChord(t); }
+      // The chord follows you into every room. The organ does not: running
+      // through the house is exactly the case that used to stack swells
+      // faster than they decayed, and a chord you cannot hear announced is
+      // still the chord the bells and the stabs are drawn from.
+      if (wantChord !== chord) {
+        chord = wantChord;
+        if (t - lastSwellAt > 3.2) soundChord(t);
+      }
       // and the rhythm is re-rolled if you have walked far enough
       if (walkSteps >= 8) { walkSteps = 0; reroll(); }
     }
@@ -17453,7 +17507,7 @@ const Music = (() => {
     const flt = ctx.createBiquadFilter(); flt.type = 'lowpass'; flt.frequency.value = 900; flt.Q.value = 3;
     const osc = [];
     for (const det of [-8, 8]) {
-      const o = ctx.createOscillator(); o.type = 'triangle';
+      const o = mkOsc(); o.type = 'triangle';
       o.frequency.value = f; o.detune.value = det;
       o.connect(flt); o.start(t); osc.push(o);
     }
@@ -17560,6 +17614,10 @@ const Music = (() => {
     setg(metalBus, 0.65 * p, 0.8 / haste);
     setg(outGain, 0.34 * (0.25 + 0.75 * p), 0.9 / haste);
 
+    // the drive that used to be a fresh curve per note is now a gain in front
+    // of a fixed one, so it can simply be turned up
+    setg(throbDrive, 0.7 + 2.4 * M.depth + 1.7 * M.unease, 0.8 / haste);
+    setg(stabDrive, 1.0 + 0.6 * M.unease, 0.8 / haste);
     setg(gritIn, 0.22 + 0.42 * M.unease + 0.30 * M.depth, 1.2 / haste);
     setg(dry, 0.80 - 0.18 * M.depth, 1.2 / haste);
     setf(tilt, 1400 + 2400 * (1 - M.depth) * (0.55 + 0.45 * M.motion) + M.unease * 900, 1.0 / haste);
@@ -17692,6 +17750,14 @@ const Music = (() => {
       throb: THROB.slice(), gate: GATE.slice(),
       onsets: THROB.filter(Boolean).length,
       chords: CHORDS.length, running, notes, chord,
+      // what the score is actually making: organs sounding at once, and
+      // oscillators started since the page loaded
+      pads: padVoices.length, made,
+      // how hard the limiter is working, in dB. This is the number that says
+      // whether the score is about to duck itself away to nothing: it is the
+      // one thing that was actually wrong when running between rooms stacked
+      // organs faster than they decayed.
+      squash: comp ? +comp.reduction.toFixed(1) : 0,
       // there is no major third anywhere in the vocabulary, and this is how
       // that is checked rather than asserted
       majors: CHORDS.filter(c => c.shape.indexOf(4) >= 0).length,
