@@ -115,14 +115,14 @@ const FINAL_FRAG = `
     // most of your visual field, and invisible on a monitor you sit back from
     // and look at the middle of.
     float amp = (0.0034 + 0.0092 * dose) * (0.80 + 1.30 * r2) * gain
-              * (1.0 + gain * (0.55 * mPulse + 0.30 * mSub));
+              * (1.0 + gain * (0.34 * mPulse + 0.16 * mSub));
     vec2 suv = uv + warp * amp;
 
     // --- the periphery softens and lets go --------------------------------
     // A handful of taps on a ring that opens up towards the edge of vision.
     // and it does not start at zero in the middle either
     float blur = ((0.9 + 3.2 * dose) * gain * (0.16 + 0.94 * smoothstep(0.0, 0.26, r2))
-                + 2.1 * mShine * gain) / res.y;
+                + 1.3 * mShine * gain) / res.y;
     vec3 col = vec3(0.0);
     float wsum = 0.0;
     for (int i = 0; i < 6; i++) {
@@ -146,19 +146,19 @@ const FINAL_FRAG = `
     vec2 gp = uv * res * 0.9;
     float g1 = hash(floor(gp) + floor(time * 24.0) * 13.7) - 0.5;
     float g2 = hash(floor(gp * 0.45) + floor(time * 11.0) * 41.3) - 0.5;
-    col += (g1 * 0.62 + g2 * 0.38) * gain * ((0.090 + 0.130 * dose) + 0.060 * mPulse + 0.075 * mFlick);
+    col += (g1 * 0.62 + g2 * 0.38) * gain * ((0.090 + 0.130 * dose) + 0.038 * mPulse + 0.050 * mFlick);
 
     // --- the room is not quite the colour it was --------------------------
     float lum = dot(col, vec3(0.299, 0.587, 0.114));
     float sway = fbm(uv * 1.6 + vec2(time * 0.07, -time * 0.05)) - 0.5;
-    col = mix(vec3(lum), col, 1.0 + gain * (0.16 + dose * (0.55 + 0.8 * sway) + 0.35 * mShine));
+    col = mix(vec3(lum), col, 1.0 + gain * (0.16 + dose * (0.55 + 0.8 * sway) + 0.22 * mShine));
 
     // --- and it closes in -------------------------------------------------
     // It closes in, but you can still see: at 0.76 with a reach of 0.46 the
     // deep rooms came out as a black rectangle with grain on it, which is not
     // a narrowing field of view, it is a fade to black.
     float vig = (0.30 + 0.24 * dose) * mix(1.0, gain, 0.5)
-              + gain * (0.085 * mSub + 0.22 * mFlick);
+              + gain * (0.055 * mSub + 0.15 * mFlick);
     float reach = mix(1.00, 0.62, dose);
     col *= 1.0 - vig * smoothstep(0.06, reach, r2);
 
@@ -296,7 +296,7 @@ function renderVision(t, dt, spaceKey) {
   // on for longer while one is ringing.
   const mf = Music.fx;
   accumMat.uniforms.prev.value = prevRT.texture;
-  accumMat.uniforms.trail.value = Math.min(0.92, 0.25 + 0.52 * d + 0.16 * mf.shine);
+  accumMat.uniforms.trail.value = Math.min(0.92, 0.25 + 0.52 * d + 0.10 * mf.shine);
   fxMesh.material = accumMat;
   renderer.setRenderTarget(accumRT);
   renderer.render(fxScene, fxCam);

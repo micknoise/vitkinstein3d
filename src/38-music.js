@@ -144,8 +144,31 @@ const Music = (() => {
   const GATE = makePattern(HOUSE.metre, 0.5, 0.42);
 
   // --- what the picture is given -----------------------------------------
+  //
   // Zero until a note is actually played. See renderVision().
+  //
+  // `raw` is what the score would like to say and `fx` is what it is allowed
+  // to. The two are different because these are *additive* terms on a pass
+  // that is already working, and they were written as flashes between notes --
+  // but rushing through the house fires a bell in every room and a swell at
+  // every door on top of a throb that never stops, and additive flashes that
+  // overlap are not flashes, they are a plateau. Measured while running the
+  // building: mean pulse went 0.14 walking to 0.43 rushing and mean weight
+  // 0.23 to 0.53, so the picture sat near the top of every term at once for as
+  // long as the player kept moving. Hence the governor below.
+  const raw = { pulse: 0, sub: 0, shine: 0, flicker: 0 };
   const fx = { pulse: 0, sub: 0, shine: 0, tension: 0, flicker: 0 };
+
+  // How much all of it together is allowed to add up to. Past this everything
+  // is scaled back in proportion, so a busy moment is *denser* than a quiet
+  // one rather than louder -- which is what a busy moment actually is.
+  const PUSH_MAX = 0.62;
+  function govern() {
+    const push = raw.pulse * 0.5 + raw.shine * 0.3 + raw.flicker * 0.4 + raw.sub * 0.3;
+    const k = push > PUSH_MAX ? PUSH_MAX / push : 1;
+    fx.pulse = raw.pulse * k; fx.shine = raw.shine * k;
+    fx.flicker = raw.flicker * k; fx.sub = raw.sub * k;
+  }
 
   // --- state --------------------------------------------------------------
   let ctx = null, running = false, timer = null;
@@ -801,11 +824,18 @@ const Music = (() => {
   // moment the score is legible as a cue it is telling you things about the
   // building instead of about you.
   function update(dt, s) {
-    // the picture decays whether or not the music is running
-    fx.pulse *= Math.exp(-dt * 5.5);
-    fx.shine *= Math.exp(-dt * 2.4);
-    fx.flicker *= Math.exp(-dt * 9);
-    if (!running) { fx.sub *= Math.exp(-dt * 2); fx.tension *= Math.exp(-dt * 2); return; }
+    // The picture decays whether or not the music is running, and it decays
+    // faster than it used to: at a half-life of 126ms a throb every 200ms
+    // never let go, so what was meant to be a flash on the note was in
+    // practice a constant lift on the warp.
+    raw.pulse *= Math.exp(-dt * 9.5);
+    raw.shine *= Math.exp(-dt * 3.2);
+    raw.flicker *= Math.exp(-dt * 9);
+    if (!running) {
+      raw.sub *= Math.exp(-dt * 2); fx.tension *= Math.exp(-dt * 2);
+      govern();
+      return;
+    }
 
     // Not a queue in time order: a swell books its arrival two seconds ahead
     // and a note booked after it lands first, so anything that only looked at
@@ -815,9 +845,9 @@ const Music = (() => {
     for (let i = visq.length - 1; i >= 0; i--) {
       const v = visq[i];
       if (v.t > now) continue;
-      if (v.kind === 'pulse') fx.pulse = Math.max(fx.pulse, v.amount);
-      else if (v.kind === 'shine') fx.shine = Math.max(fx.shine, v.amount);
-      else if (v.kind === 'flicker') fx.flicker = v.amount;
+      if (v.kind === 'pulse') raw.pulse = Math.max(raw.pulse, v.amount);
+      else if (v.kind === 'shine') raw.shine = Math.max(raw.shine, v.amount);
+      else if (v.kind === 'flicker') raw.flicker = v.amount;
       else if (v.kind === 'sub') M.weight = Math.max(M.weight, v.amount);
       visq.splice(i, 1);
     }
@@ -858,7 +888,7 @@ const Music = (() => {
     const want = idle > 16 ? 0 : 1;
     M.presence += (want - M.presence) * Math.min(1, dt * (want > M.presence ? 0.5 : 0.12));
 
-    M.weight *= Math.exp(-dt * 0.8);
+    M.weight *= Math.exp(-dt * 1.5);
     const bedLvl = levels(1);
 
     // the next climb, once there is something to climb out of
@@ -866,9 +896,13 @@ const Music = (() => {
       glideAt = now + 8 + MR() * (34 - 18 * M.depth);
     if (M.presence < 0.15) glideAt = 1e9;
 
-    // what the picture gets
-    fx.sub = clamp01(bedLvl * 2.4 + M.weight * 0.5);
+    // what the picture gets. The drone's own level is a constant while you
+    // are moving, so most of what it used to contribute was a permanent
+    // offset on the vignette and the warp rather than anything you could
+    // notice happening.
+    raw.sub = clamp01(bedLvl * 1.3 + M.weight * 0.45);
     fx.tension = clamp01(0.35 * M.unease + 0.45 * M.depth * M.presence + 0.2 * M.motion * M.presence);
+    govern();
   }
 
   // Every level and every filter, worked out from the macros. `haste` is 1 in
@@ -1042,7 +1076,10 @@ const Music = (() => {
       vision: +M.vision.toFixed(3),
       carrying: !!carried, fx: { pulse: +fx.pulse.toFixed(3), sub: +fx.sub.toFixed(3),
                                  shine: +fx.shine.toFixed(3), tension: +fx.tension.toFixed(3),
-                                 flicker: +fx.flicker.toFixed(3) }
+                                 flicker: +fx.flicker.toFixed(3) },
+      // what it asked for before the governor, and how much it got
+      push: +(raw.pulse * 0.5 + raw.shine * 0.3 + raw.flicker * 0.4 + raw.sub * 0.3).toFixed(3),
+      pushMax: PUSH_MAX
     })
   };
 })();

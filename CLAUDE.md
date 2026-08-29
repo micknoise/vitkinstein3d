@@ -95,6 +95,9 @@ well as the pass itself, and is read back by the score as how much to distort.
 - **The score is a reading of the player, not of the house.** It stops when they
   stop, it never announces a fold, and every value it hands the renderer is zero
   while it is silent. Anything that makes it play regardless makes it furniture.
+  What it hands the renderer is *additive* and passes through a governor
+  (`PUSH_MAX` in `38-music.js`) — add a term without putting it in that sum and
+  a player who rushes will find the picture pinned at the top of everything.
 - **Trunk only — no experiment branches.** One experiment per commit, on `main`,
   pushed as soon as `npm test` is green: GitHub Pages serves `main`, and playing
   it is how an experiment gets judged. Revert is the undo. Record the verdict in

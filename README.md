@@ -166,6 +166,12 @@ and the bad bulb in the ceiling are the same event, and nothing explains either.
 All of it is exactly zero until the music starts, so a build with the score
 renders the same pixels as one without.
 
+What the score is allowed to do to the picture is bounded: the terms are
+additive, so a player rushing through the house — a bell in every room, a swell
+at every door, over a throb that never stops — would otherwise sit near the top
+of all of them at once. Past a fixed ceiling the whole set is scaled back in
+proportion, so a busy moment is *denser* than a quiet one rather than brighter.
+
 And it runs the other way as well: how hard the perception pass is working —
 how far in you are, times `?fx=N` — drives the score's distortion. Turn the pass
 up and the throb, the grit, the crackle and the wow across the whole mix all

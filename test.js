@@ -527,7 +527,7 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
       try {
         const sleep = ms => new Promise(r => setTimeout(r, ms));
         const keys = Object.keys(VK.spaces);
-        let pads = 0, squash = 0;
+        let pads = 0, squash = 0, asked = 0, got = 0, cap = 0;
         const made0 = VK.music.info().made;
         for (let i = 0; i < 24; i++) {
           VK.music.event('room', { key: keys[i % keys.length], seen: false });
@@ -537,9 +537,14 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
             const inf = VK.music.info();
             pads = Math.max(pads, inf.pads);
             squash = Math.min(squash, inf.squash);
+            asked = Math.max(asked, inf.push);
+            const f = inf.fx;
+            got = Math.max(got, f.pulse * 0.5 + f.shine * 0.3 + f.flicker * 0.4 + f.sub * 0.3);
+            cap = inf.pushMax;
           }
         }
-        return { pads, shapers, squash, made: VK.music.info().made - made0 };
+        return { pads, shapers, squash, made: VK.music.info().made - made0,
+                 asked: +asked.toFixed(3), got: +got.toFixed(3), cap };
       } finally { AC.prototype.createWaveShaper = w0; }
     });
     assert(stress.pads <= 1,
@@ -548,6 +553,15 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
       'and builds no new distortion curves while it plays (' + stress.shapers + ')');
     assert(stress.squash > -14,
       'so the limiter never has to take the whole score away (worst ' + stress.squash + ' dB)');
+    // These are additive terms on a pass that is already working, and they
+    // were written as flashes between notes. Rushing through the building
+    // fires a bell in every room and a swell at every door on top of a throb
+    // that never stops, and flashes that overlap are not flashes, they are a
+    // plateau -- reported from play as the pass being too intense most of the
+    // time and occasionally blowing up.
+    assert(stress.got <= stress.cap * 1.02,
+      'and however much is happening at once, the score pushes the picture only so far (asked ' +
+      stress.asked + ', got ' + stress.got + ', ceiling ' + stress.cap + ')');
 
     // --- the house changes behind your back, and only its own things (A1a) ---
     const drift = await p.evaluate(() => {

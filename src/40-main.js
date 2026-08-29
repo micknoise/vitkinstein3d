@@ -869,7 +869,7 @@ function animate() {
   });
   // The stutter in the drone and the bad bulb in the ceiling are the same
   // event. Nothing explains either.
-  musicLight = 1 + Music.fx.pulse * 0.09 - Music.fx.sub * 0.045 - Music.fx.flicker * 0.34;
+  musicLight = 1 + Music.fx.pulse * 0.06 - Music.fx.sub * 0.03 - Music.fx.flicker * 0.26;
 
   updateHover();
   if (hoverTarget !== shownHover) {
