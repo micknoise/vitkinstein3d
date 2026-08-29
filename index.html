@@ -16919,7 +16919,12 @@ const Music = (() => {
   let revSend, revReturn, delIn, delOut;
   let throbBus, padBus, metalBus, bedBus, bedGate, throbDrive, stabDrive;
   let throbMakeup, gritOut;
-  let bedNodes = null, carried = null, glideUntil = 0, glideAt = 1e9;
+  let bedNodes = null, carried = null, glideUntil = 0, glideAt = 1e9, _ir = null;
+  // ?noverb=1 takes the convolution out and leaves everything else exactly as
+  // it is. Reported dropouts are believed to be the reverb; this is the one
+  // experiment that settles it, and it has to be run on the machine it happens
+  // on rather than on mine.
+  let NO_VERB = false;
   // The organ is the one voice here that sustains for longer than the gap
   // between the events that start it, so it is the one that has to be counted.
   // Running from room to room used to stack a fresh twelve-second swell every
@@ -17051,13 +17056,15 @@ const Music = (() => {
     revHp.type = 'highpass'; revHp.frequency.value = 130; revHp.Q.value = 0.6;
     const pre = ctx.createDelay(0.2); pre.delayTime.value = 0.045;
     const conv = ctx.createConvolver();
-    conv.buffer = impulse(6.0, 2.4);
+    conv.normalize = false;                 // the level is ours, not the browser's
+    conv.buffer = impulse(3.2, 2.2);
     const revDark = ctx.createBiquadFilter();
     revDark.type = 'lowpass'; revDark.frequency.value = 1500; revDark.Q.value = 0.3;
     const revThin = ctx.createBiquadFilter();
     revThin.type = 'highpass'; revThin.frequency.value = 90; revThin.Q.value = 0.4;
-    revReturn = ctx.createGain(); revReturn.gain.value = 1.15;
+    revReturn = ctx.createGain(); revReturn.gain.value = NO_VERB ? 0 : 1.15;
     revSend.connect(revHp); revHp.connect(pre); pre.connect(conv); conv.connect(revDark);
+    _ir = conv.buffer;
     revDark.connect(revThin); revThin.connect(revReturn); revReturn.connect(bus);
 
     // and one dark feedback delay, off the metal and the stabs only
@@ -17127,23 +17134,64 @@ const Music = (() => {
   // Noise under an exponential decay, darkening as it goes, with a handful of
   // sparse early reflections at the front -- which is what carries the size of
   // a place, rather than the tail.
+  //
+  // The first version of this was wrong in a way that does not show up as a
+  // bad noise, which is the worst kind. Darkening the tail was done with a
+  // one-pole lowpass whose corner falls towards the end, and a one-pole
+  // lowpass run over noise is an *integrator*: what came out was a random
+  // walk, with big slow excursions and a real DC component. Measured on the
+  // response it produced, the sum of its samples was 305 against an expected
+  // mid-band magnitude of about 47 -- so the reverb had roughly sixteen dB
+  // more gain at DC than at the frequencies it was supposed to be reverberating,
+  // and its tail wandered up and down at frequencies nobody can hear on a
+  // signal that was mostly bass to begin with.
+  //
+  // Three things fix it, and all three are ordinary practice. The mean is
+  // taken out. A one-pole highpass at 90Hz goes over the finished response, so
+  // there is no DC and no infrasonic wander left in it at all. And it is
+  // normalised to unit energy with `conv.normalize` turned *off*, so the gain
+  // of the reverb is a number chosen here rather than whatever the browser's
+  // own normalisation makes of a buffer whose character keeps changing.
+  //
+  // It is also mono and 3.2 seconds rather than stereo and 6.0, which is a
+  // quarter of the work on the audio thread for a tail nobody was hearing the
+  // end of.
   function impulse(sec, decay) {
     const rate = ctx.sampleRate, len = Math.floor(rate * sec);
-    const b = ctx.createBuffer(2, len, rate);
-    for (let c = 0; c < 2; c++) {
-      const d = b.getChannelData(c);
-      let lp = 0;
-      for (let i = 0; i < len; i++) {
-        const t = i / len;
-        const w = (MR() * 2 - 1) * Math.pow(1 - t, decay);
-        lp += (w - lp) * (0.5 - 0.36 * t);
-        d[i] = lp;
-      }
-      for (let k = 0; k < 9; k++) {
-        const at = Math.floor(rate * (0.008 + MR() * 0.085));
-        if (at < len) d[at] += (MR() * 2 - 1) * 0.55 * (1 - k / 9);
-      }
+    const b = ctx.createBuffer(1, len, rate);
+    const d = b.getChannelData(0);
+
+    let lp = 0;
+    for (let i = 0; i < len; i++) {
+      const t = i / len;
+      const w = (MR() * 2 - 1) * Math.pow(1 - t, decay);
+      lp += (w - lp) * (0.55 - 0.40 * t);
+      d[i] = lp;
     }
+    for (let k = 0; k < 9; k++) {
+      const at = Math.floor(rate * (0.008 + MR() * 0.085));
+      if (at < len) d[at] += (MR() * 2 - 1) * 0.42 * (1 - k / 9);
+    }
+
+    // no mean, and nothing under 90Hz
+    let mean = 0;
+    for (let i = 0; i < len; i++) mean += d[i];
+    mean /= len;
+    const a = Math.exp(-2 * Math.PI * 90 / rate);
+    let y = 0, x1 = 0;
+    for (let i = 0; i < len; i++) {
+      const x = d[i] - mean;
+      y = a * (y + x - x1);
+      x1 = x;
+      d[i] = y;
+    }
+
+    // unit energy, so the convolution is about unity gain for anything
+    // broadband and the level is set by revReturn and nothing else
+    let sq = 0;
+    for (let i = 0; i < len; i++) sq += d[i] * d[i];
+    const g = 1 / Math.sqrt(Math.max(1e-12, sq));
+    for (let i = 0; i < len; i++) d[i] *= g;
     return b;
   }
 
@@ -17752,7 +17800,7 @@ const Music = (() => {
     setg(dry, 0.80 - 0.18 * M.depth, 1.2 / haste);
     setf(tilt, 1400 + 2400 * (1 - M.depth) * (0.55 + 0.45 * M.motion) + M.unease * 900, 1.0 / haste);
     setg(wowDepth, Math.max(0, 0.0006 + 0.0022 * M.depth + 0.0016 * M.unease + 0.0018 * over), 2.5 / haste);
-    setg(revReturn, 0.70 + 0.35 * M.depth, 2.0 / haste);
+    setg(revReturn, NO_VERB ? 0 : 0.70 + 0.35 * M.depth, 2.0 / haste);
     if (bedNodes) {
       setf(bedNodes.lp, 150 + 460 * M.depth, 3.0 / haste);
       setg(bedNodes.crackle, Math.max(0, 0.20 + 0.30 * M.depth + 0.22 * M.unease + 0.30 * over), 2.0 / haste);
@@ -17779,7 +17827,7 @@ const Music = (() => {
     if (running) return Promise.reject(new Error('the score is playing; stop it first'));
     const OC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
     const sr = 44100;
-    const saved = { ctx, bedNodes, carried };
+    const saved = { ctx, bedNodes, carried, noverb: NO_VERB };
     ctx = new OC(1, Math.floor(sr * seconds), sr);
     carried = null;
     try {
@@ -17787,12 +17835,12 @@ const Music = (() => {
       buildBed();
       Object.assign(M, { motion: 0.9, unease: 0.15, depth: 0.4, presence: 1, weight: 0 }, state || {});
       if (!state || state.vision === undefined) M.vision = M.depth;
+      NO_VERB = !!(state && state.noverb);
       chord = wantChord = (state && state.chord) || 0;
       levels(60);                       // no time to ease anything in here
       let t = 0.05, n = 0;
       const events = (state && state.events) || [];
       if (state && state.glide) glide(0.5, state.glide === true ? 16 : state.glide, 1, false);
-      if (state && state.noverb) revReturn.gain.value = 0;
       while (t < seconds - 0.6) {
         for (const e of events) if (e.at !== undefined && e.at >= t && e.at < t + stepDur()) fire(e, t);
         step(n++, t);
@@ -17820,9 +17868,9 @@ const Music = (() => {
                  pinned: +(100 * pinned / d.length).toFixed(2),
                  sub: +(Math.sqrt(lsum / d.length) / Math.max(1e-9, rms)).toFixed(3),
                  centroid: +centroid(d, buf.sampleRate).toFixed(1), steps: n };
-      }).finally(() => { ctx = saved.ctx; bedNodes = saved.bedNodes; carried = saved.carried; });
+      }).finally(() => { ctx = saved.ctx; bedNodes = saved.bedNodes; carried = saved.carried; NO_VERB = saved.noverb; });
     } catch (e) {
-      ctx = saved.ctx; bedNodes = saved.bedNodes; carried = saved.carried;
+      ctx = saved.ctx; bedNodes = saved.bedNodes; carried = saved.carried; NO_VERB = saved.noverb;
       return Promise.reject(e);
     }
   }
@@ -17866,6 +17914,7 @@ const Music = (() => {
 
   function start(context, destination) {
     if (running || QS.has('nomusic') || !context) return;
+    NO_VERB = QS.has('noverb');
     ctx = context;
     buildBus(destination);
     buildBed();
@@ -17891,6 +17940,7 @@ const Music = (() => {
 
   return {
     start, stop, update, event, fx, render, KINDS,
+    get ir() { return _ir; },
     get running() { return running; },
     degreeOf, chordNotes,
     info: () => ({

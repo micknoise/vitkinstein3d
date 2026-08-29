@@ -178,7 +178,8 @@ up and the throb, the grit, the crackle and the wow across the whole mix all
 come up with it; turn it down and the music cleans up. The two halves are one
 thing happening to one person.
 
-`?nomusic=1` turns the score off, `?fx=N` scales both halves at once, and
+`?nomusic=1` turns the score off, `?noverb=1` takes out its reverb and leaves
+everything else, `?fx=N` scales both halves at once, and
 `npm run music` draws the score to a wav so it can be listened to away from the
 game, printing how loud it is, where its energy sits, and how much of the time
 it is on the ceiling.

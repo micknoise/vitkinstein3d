@@ -41,8 +41,27 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
         const m = await VK.music.render(6, st);
         takes[name] = { peak: m.peak, rms: m.rms, centroid: m.centroid, sub: m.sub, pinned: m.pinned };
       }
+      // The reverb's impulse response, which is the one piece of maths in here
+      // that can be wrong without sounding wrong. Built as a decaying noise
+      // burst it has no DC; built by running a lowpass over noise -- which is
+      // an integrator -- it is a random walk with a large DC term, and the
+      // reverb then has far more gain below hearing than in the band it is
+      // supposed to be reverberating. Measured on the version that shipped:
+      // DC 305 against a mid-band magnitude of 47.
+      const ir = VK.music.ir, id = ir.getChannelData(0);
+      let dc = 0;
+      for (let i = 0; i < id.length; i++) dc += id[i];
+      let mid = 0;
+      for (const f of [400, 700, 1100, 1700, 2300]) {
+        let re = 0, im = 0; const w = 2 * Math.PI * f / ir.sampleRate;
+        for (let i = 0; i < id.length; i += 2) { re += id[i] * Math.cos(w * i); im -= id[i] * Math.sin(w * i); }
+        mid += 2 * Math.sqrt(re * re + im * im);
+      }
+      mid /= 5;
       return { at_load, keys, first, again, takes,
                distinct: new Set(first).size,
+               ir: { chans: ir.numberOfChannels, secs: +(id.length / ir.sampleRate).toFixed(2),
+                     dcOverMid: +(Math.abs(dc) / Math.max(1e-9, mid)).toFixed(3) },
                fold: at_load.kinds.filter(k => /fold|portal|through|cross/.test(k)) };
     });
     assert(!score.at_load.running &&
@@ -95,6 +114,9 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
            score.takes.walking.centroid > 210 && score.takes.walking.centroid < 700,
       'and all of it is low, but not below hearing (' + score.takes.still.centroid +
       'Hz standing, ' + score.takes.walking.centroid + 'Hz walking)');
+    assert(score.ir.dcOverMid < 0.5,
+      'the reverb has no more gain below hearing than in the band it works in (' +
+      score.ir.dcOverMid + ', was 6.5)');
     // And it does not live on the ceiling. A clipper is there to catch the odd
     // stab, not to be the loudest thing in the signal path all passage.
     const onCeiling = Math.max(score.takes.walking.pinned, score.takes.dirty.pinned);
