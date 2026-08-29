@@ -78,7 +78,8 @@ generated building and a hand-written one are the same kind of thing.
 
 URL flags: `?seed=N`, `?perf=1`, `?pr=N` (pin pixel ratio), `?nograin=1`,
 `?nodrift=1` (stop rooms changing behind you), `?nofx=1` (raw render), `?fx=N` (perception pass gain, 1 is default),
-`?nomusic=1` (no score).
+`?nomusic=1` (no score). `?fx=N` scales what the score does to the picture as
+well as the pass itself, and is read back by the score as how much to distort.
 `VK.pinDose(0..1)` pins how far in the pass thinks you are; `VK.pinDose(null)` releases it.
 
 ## House rules

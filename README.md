@@ -166,8 +166,15 @@ and the bad bulb in the ceiling are the same event, and nothing explains either.
 All of it is exactly zero until the music starts, so a build with the score
 renders the same pixels as one without.
 
-`?nomusic=1` turns it off. `npm run music` draws it to a wav so it can be
-listened to away from the game, and prints how loud and how dark it is.
+And it runs the other way as well: how hard the perception pass is working —
+how far in you are, times `?fx=N` — drives the score's distortion. Turn the pass
+up and the throb, the grit, the crackle and the wow across the whole mix all
+come up with it; turn it down and the music cleans up. The two halves are one
+thing happening to one person.
+
+`?nomusic=1` turns the score off, `?fx=N` scales both halves at once, and
+`npm run music` draws the score to a wav so it can be listened to away from the
+game, with how loud and how dark it is printed alongside.
 
 ## Keeping it fast
 

@@ -70,6 +70,12 @@ const FINAL_FRAG = `
   // stab. All three are zero until the score starts, and every term they
   // appear in multiplies by them, so a build with music renders identically to
   // one without until somebody presses play.
+  // Every one of these is multiplied by the gain uniform where it is used, so
+  // ?fx=N scales what the score does to the picture along with everything else
+  // the pass does. Without that the score was adding a fixed amount on top of
+  // a dial that was supposed to control the whole thing, which is why the pass
+  // felt stronger than it had been at the same setting.
+  // (And no backticks in here: this is inside a template literal.)
   uniform float mPulse;
   uniform float mSub;
   uniform float mShine;
@@ -109,14 +115,14 @@ const FINAL_FRAG = `
     // most of your visual field, and invisible on a monitor you sit back from
     // and look at the middle of.
     float amp = (0.0034 + 0.0092 * dose) * (0.80 + 1.30 * r2) * gain
-              * (1.0 + 0.55 * mPulse + 0.30 * mSub);
+              * (1.0 + gain * (0.55 * mPulse + 0.30 * mSub));
     vec2 suv = uv + warp * amp;
 
     // --- the periphery softens and lets go --------------------------------
     // A handful of taps on a ring that opens up towards the edge of vision.
     // and it does not start at zero in the middle either
     float blur = ((0.9 + 3.2 * dose) * gain * (0.16 + 0.94 * smoothstep(0.0, 0.26, r2))
-                + 2.1 * mShine) / res.y;
+                + 2.1 * mShine * gain) / res.y;
     vec3 col = vec3(0.0);
     float wsum = 0.0;
     for (int i = 0; i < 6; i++) {
@@ -140,18 +146,19 @@ const FINAL_FRAG = `
     vec2 gp = uv * res * 0.9;
     float g1 = hash(floor(gp) + floor(time * 24.0) * 13.7) - 0.5;
     float g2 = hash(floor(gp * 0.45) + floor(time * 11.0) * 41.3) - 0.5;
-    col += (g1 * 0.62 + g2 * 0.38) * ((0.090 + 0.130 * dose) * gain + 0.060 * mPulse + 0.075 * mFlick);
+    col += (g1 * 0.62 + g2 * 0.38) * gain * ((0.090 + 0.130 * dose) + 0.060 * mPulse + 0.075 * mFlick);
 
     // --- the room is not quite the colour it was --------------------------
     float lum = dot(col, vec3(0.299, 0.587, 0.114));
     float sway = fbm(uv * 1.6 + vec2(time * 0.07, -time * 0.05)) - 0.5;
-    col = mix(vec3(lum), col, 1.0 + gain * (0.16 + dose * (0.55 + 0.8 * sway)) + 0.35 * mShine);
+    col = mix(vec3(lum), col, 1.0 + gain * (0.16 + dose * (0.55 + 0.8 * sway) + 0.35 * mShine));
 
     // --- and it closes in -------------------------------------------------
     // It closes in, but you can still see: at 0.76 with a reach of 0.46 the
     // deep rooms came out as a black rectangle with grain on it, which is not
     // a narrowing field of view, it is a fade to black.
-    float vig = (0.30 + 0.24 * dose) * mix(1.0, gain, 0.5) + 0.085 * mSub + 0.22 * mFlick;
+    float vig = (0.30 + 0.24 * dose) * mix(1.0, gain, 0.5)
+              + gain * (0.085 * mSub + 0.22 * mFlick);
     float reach = mix(1.00, 0.62, dose);
     col *= 1.0 - vig * smoothstep(0.06, reach, r2);
 

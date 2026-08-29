@@ -859,9 +859,13 @@ function animate() {
 
   // and the score reads what you are doing: how fast you are going, how much
   // you are looking about, and how far in you are. See 38-music.js.
+  // `vision` is how hard the perception pass is actually working -- how far
+  // in you are, times ?fx=N. The score reads it and dirties itself to match,
+  // so the two halves of the thing move together: turn the pass up and the
+  // music distorts with it, turn it down and the music cleans up.
   Music.update(dt, {
     speed: Math.hypot(playerBody.velocity.x, playerBody.velocity.z),
-    yaw, dose
+    yaw, dose, vision: dose * FX_GAIN
   });
   // The stutter in the drone and the bad bulb in the ceiling are the same
   // event. Nothing explains either.

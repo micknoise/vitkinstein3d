@@ -31,7 +31,12 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
       for (const [name, st] of [
         ['gone',    { motion: 0, unease: 0, depth: 0.3, presence: 0 }],
         ['still',   { motion: 0, unease: 0, depth: 0.3, presence: 1 }],
-        ['walking', { motion: 1, unease: 0.1, depth: 0.35, presence: 1 }]
+        ['walking', { motion: 1, unease: 0.1, depth: 0.35, presence: 1 }],
+        // the same state twice, with the perception pass turned up the second
+        // time: the score reads how hard the pass is working and dirties
+        // itself to match
+        ['clean',   { motion: 1, unease: 0.1, depth: 0.6, presence: 1, vision: 0.6 }],
+        ['dirty',   { motion: 1, unease: 0.1, depth: 0.6, presence: 1, vision: 1.8 }]
       ]) {
         const m = await VK.music.render(6, st);
         takes[name] = { peak: m.peak, rms: m.rms, centroid: m.centroid };
@@ -86,6 +91,20 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
     assert(score.takes.still.centroid < 240 && score.takes.walking.centroid < 700,
       'and all of it is low (' + score.takes.still.centroid + 'Hz standing, ' +
       score.takes.walking.centroid + 'Hz walking)');
+    // The coupling runs both ways: the score pushes the perception pass, and
+    // how hard the pass is working pushes drive, grit, crackle and wow back
+    // into the score. ?fx=N is the same dial for both.
+    //
+    // Measured as crest factor -- peak over RMS -- because that is what
+    // distortion actually is: the waveform flattening out. The obvious
+    // measure, spectral centroid, goes the *wrong* way on some houses, since
+    // driving a sub-bass into a shaper adds as much weight underneath as it
+    // adds edge on top, and on seed 7 that made a dirtier score read as a
+    // darker one.
+    const crest = t => +(t.peak / Math.max(1e-6, t.rms)).toFixed(2);
+    assert(crest(score.takes.dirty) < crest(score.takes.clean) * 0.95,
+      'and turning the perception pass up dirties the score with it (crest ' +
+      crest(score.takes.clean) + ' at fx=1, ' + crest(score.takes.dirty) + ' at fx=3)');
 
     // --- the building ------------------------------------------------------
     const plan = await p.evaluate(() => {

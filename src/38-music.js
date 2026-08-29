@@ -171,7 +171,7 @@ const Music = (() => {
   const visq = [];           // what the picture should do, and when
 
   // macros, all 0..1, all smoothed -- nothing in here is allowed to snap
-  const M = { motion: 0, unease: 0, depth: 0.3, presence: 0, weight: 0, flick: 0 };
+  const M = { motion: 0, unease: 0, depth: 0.3, presence: 0, weight: 0, flick: 0, vision: 0.3 };
   let idle = 0, lastYaw = null, walkSteps = 0;
 
   const clamp01 = v => v < 0 ? 0 : v > 1 ? 1 : v;
@@ -845,6 +845,14 @@ const Music = (() => {
     const depth = s.dose === undefined ? 0.3 : s.dose;
     M.depth += (depth - M.depth) * Math.min(1, dt * 0.18);
 
+    // How hard the perception pass is working, which is depth times ?fx=N.
+    // At the default it is the same number as depth and this does nothing; it
+    // is the *difference* that is used, so turning the pass up puts drive,
+    // grit, crackle and wow into the score and turning it down takes them out.
+    // The two halves of this are one thing happening to one person.
+    const vision = s.vision === undefined ? depth : s.vision;
+    M.vision += (vision - M.vision) * Math.min(1, dt * 0.18);
+
     // and whether anything at all is happening
     if (M.motion > 0.06) idle = 0; else idle += dt;
     const want = idle > 16 ? 0 : 1;
@@ -878,18 +886,21 @@ const Music = (() => {
     setg(metalBus, 0.65 * p, 0.8 / haste);
     setg(outGain, 0.34 * (0.25 + 0.75 * p), 0.9 / haste);
 
+    // How much worse the picture is than the depth alone would make it: zero
+    // at ?fx=1, and what the score reads to dirty itself to match.
+    const over = Math.max(-0.6, Math.min(2, M.vision - M.depth));
     // the drive that used to be a fresh curve per note is now a gain in front
     // of a fixed one, so it can simply be turned up
-    setg(throbDrive, 0.7 + 2.4 * M.depth + 1.7 * M.unease, 0.8 / haste);
-    setg(stabDrive, 1.0 + 0.6 * M.unease, 0.8 / haste);
-    setg(gritIn, 0.22 + 0.42 * M.unease + 0.30 * M.depth, 1.2 / haste);
+    setg(throbDrive, Math.max(0.15, 0.7 + 2.4 * M.depth + 1.7 * M.unease + 2.6 * over), 0.8 / haste);
+    setg(stabDrive, Math.max(0.3, 1.0 + 0.6 * M.unease + 0.8 * over), 0.8 / haste);
+    setg(gritIn, Math.max(0, 0.22 + 0.42 * M.unease + 0.30 * M.depth + 0.45 * over), 1.2 / haste);
     setg(dry, 0.80 - 0.18 * M.depth, 1.2 / haste);
     setf(tilt, 1400 + 2400 * (1 - M.depth) * (0.55 + 0.45 * M.motion) + M.unease * 900, 1.0 / haste);
-    setg(wowDepth, 0.0006 + 0.0026 * M.depth + 0.0020 * M.unease, 2.5 / haste);
+    setg(wowDepth, Math.max(0, 0.0006 + 0.0026 * M.depth + 0.0020 * M.unease + 0.0024 * over), 2.5 / haste);
     setg(revReturn, 0.95 + 0.55 * M.depth, 2.0 / haste);
     if (bedNodes) {
       setf(bedNodes.lp, 150 + 460 * M.depth, 3.0 / haste);
-      setg(bedNodes.crackle, 0.24 + 0.40 * M.depth + 0.30 * M.unease, 2.0 / haste);
+      setg(bedNodes.crackle, Math.max(0, 0.24 + 0.40 * M.depth + 0.30 * M.unease + 0.45 * over), 2.0 / haste);
     }
     return bedLvl;
   }
@@ -920,6 +931,7 @@ const Music = (() => {
       buildBus(ctx.destination);
       buildBed();
       Object.assign(M, { motion: 0.9, unease: 0.15, depth: 0.4, presence: 1, weight: 0 }, state || {});
+      if (!state || state.vision === undefined) M.vision = M.depth;
       chord = wantChord = (state && state.chord) || 0;
       levels(60);                       // no time to ease anything in here
       let t = 0.05, n = 0;
@@ -1027,6 +1039,7 @@ const Music = (() => {
       majors: CHORDS.filter(c => c.shape.indexOf(4) >= 0).length,
       motion: +M.motion.toFixed(3), unease: +M.unease.toFixed(3),
       depth: +M.depth.toFixed(3), presence: +M.presence.toFixed(3),
+      vision: +M.vision.toFixed(3),
       carrying: !!carried, fx: { pulse: +fx.pulse.toFixed(3), sub: +fx.sub.toFixed(3),
                                  shine: +fx.shine.toFixed(3), tension: +fx.tension.toFixed(3),
                                  flicker: +fx.flicker.toFixed(3) }
