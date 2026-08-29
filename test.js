@@ -39,7 +39,7 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
         ['dirty',   { motion: 1, unease: 0.1, depth: 0.6, presence: 1, vision: 1.8 }]
       ]) {
         const m = await VK.music.render(6, st);
-        takes[name] = { peak: m.peak, rms: m.rms, centroid: m.centroid };
+        takes[name] = { peak: m.peak, rms: m.rms, centroid: m.centroid, sub: m.sub, pinned: m.pinned };
       }
       return { at_load, keys, first, again, takes,
                distinct: new Set(first).size,
@@ -84,13 +84,22 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
       score.takes.still.rms + ', peak ' + score.takes.walking.peak + ' vs ' + score.takes.still.peak + ')');
     assert(score.takes.walking.peak < 0.55 && score.takes.walking.rms < 0.16,
       'and none of it is loud (peak ' + score.takes.walking.peak + ', rms ' + score.takes.walking.rms + ')');
-    // The bar is the rest of this project's sound: wood measures 150Hz, metal
-    // 206Hz, tile 154Hz. The crackle over the drone puts standing above where
-    // it was before it had any, and that is the point of it -- but the score
-    // still has to sit under the foley rather than over it.
-    assert(score.takes.still.centroid < 240 && score.takes.walking.centroid < 700,
-      'and all of it is low (' + score.takes.still.centroid + 'Hz standing, ' +
-      score.takes.walking.centroid + 'Hz walking)');
+    // Low, but not so low that nobody can hear it. The bar is the rest of this
+    // project's sound: wood measures 150Hz, metal 206Hz, tile 154Hz, ceramic
+    // 591Hz. The score has to sit under the foley rather than over it -- and
+    // it also has to sit *in* the audible band, which is the fault that made
+    // it drop out: at 147Hz walking it was putting nearly all of its energy
+    // under 60Hz, where it cost the whole mix its headroom and returned no
+    // sound at all on a speaker that could not reproduce it.
+    assert(score.takes.still.centroid < 340 &&
+           score.takes.walking.centroid > 210 && score.takes.walking.centroid < 700,
+      'and all of it is low, but not below hearing (' + score.takes.still.centroid +
+      'Hz standing, ' + score.takes.walking.centroid + 'Hz walking)');
+    // And it does not live on the ceiling. A clipper is there to catch the odd
+    // stab, not to be the loudest thing in the signal path all passage.
+    const onCeiling = Math.max(score.takes.walking.pinned, score.takes.dirty.pinned);
+    assert(onCeiling < 1.0,
+      'and it does not sit on the ceiling (' + onCeiling + '% of the time at worst)');
     // The coupling runs both ways: the score pushes the perception pass, and
     // how hard the pass is working pushes drive, grit, crackle and wow back
     // into the score. ?fx=N is the same dial for both.

@@ -20,6 +20,7 @@ const STATES = {
   still:   { motion: 0,   unease: 0,    depth: 0.30, presence: 1 },
   walking: { motion: 1,   unease: 0.10, depth: 0.35, presence: 1 },
   deep:    { motion: 1,   unease: 0.50, depth: 1.00, presence: 1 },
+  glide:   { motion: 1,   unease: 0.80, depth: 1.00, presence: 1, glide: 16 },
   hands:   { motion: 0.6, unease: 0.30, depth: 0.60, presence: 1,
              events: [{ kind: 'grab', at: 1.0, mass: 0.4, size: 0.16 },
                       { kind: 'door', at: 3.0, open: true },
@@ -57,17 +58,22 @@ function wav(samples, rate) {
               ' semitone' + (house.rub === 1 ? '' : 's') + ' against itself');
   console.log('throb ' + house.throb.map(v => v ? '×' : '·').join(' '));
   console.log('gate  ' + house.gate.map(v => v ? '×' : '·').join(' '));
-  console.log('\nstate      peak     rms   centroid   file');
+  console.log('\nstate      peak     rms   centroid   sub  clip   file');
 
   for (const name of Object.keys(STATES)) {
     const r = await page.evaluate(async ([sec, st]) => {
       const m = await VK.music.render(sec, st);
-      return { peak: m.peak, rms: m.rms, centroid: m.centroid, rate: m.rate, data: Array.from(m.data) };
+      return { peak: m.peak, rms: m.rms, centroid: m.centroid, sub: m.sub, pinned: m.pinned,
+               rate: m.rate, data: Array.from(m.data) };
     }, [secs, STATES[name]]);
     const file = path.join(outDir, seed + '-' + name + '.wav');
     fs.writeFileSync(file, wav(Float32Array.from(r.data), r.rate));
+    // `sub` is how much of it sits under 60Hz, which is where a score can put
+    // all of its energy and none of its sound; `clip` is how much of the time
+    // the output is on the ceiling. Both are here because both were wrong.
     console.log(name.padEnd(9) + String(r.peak).padStart(6) + String(r.rms).padStart(8) +
-                String(r.centroid).padStart(10) + 'Hz   ' + path.relative(process.cwd(), file));
+                String(r.centroid).padStart(10) + 'Hz' + String(r.sub).padStart(6) +
+                String(r.pinned + '%').padStart(6) + '   ' + path.relative(process.cwd(), file));
   }
   if (errs.length) console.log('\nerrors: ' + errs.join(' | '));
   await browser.close();

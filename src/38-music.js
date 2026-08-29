@@ -175,6 +175,7 @@ const Music = (() => {
   let bus, dry, wow, wowLfo, wowDepth, grit, gritIn, tilt, comp, outGain, duck;
   let revSend, revReturn, delIn, delOut;
   let throbBus, padBus, metalBus, bedBus, bedGate, throbDrive, stabDrive;
+  let throbMakeup, gritOut;
   let bedNodes = null, carried = null, glideUntil = 0, glideAt = 1e9;
   // The organ is the one voice here that sustains for longer than the gap
   // between the events that start it, so it is the one that has to be counted.
@@ -224,32 +225,87 @@ const Music = (() => {
     dry = ctx.createGain(); dry.gain.value = 0.75;
 
     // the grit path, in parallel, brought up by unease and by depth
-    gritIn = ctx.createGain(); gritIn.gain.value = 0.35;
-    grit = shaper(5.5);
+    gritIn = ctx.createGain(); gritIn.gain.value = 0.12;
+    grit = shaper(3.6);
 
     tilt = ctx.createBiquadFilter(); tilt.type = 'lowpass';
     tilt.frequency.value = 2600; tilt.Q.value = 0.5;
 
     duck = ctx.createGain(); duck.gain.value = 1;
 
-    // A limiter, not a leveller. Set low it hands you back the same loudness
-    // whatever you do, and the whole point is that standing still is quieter.
+    // The ceiling is a curve, not a compressor.
+    //
+    // Reported from play: the score drops out as it gets more distorted, on
+    // every machine. That is a compressor's signature, and it was doing
+    // exactly what it had been asked to. At -6 and 9:1 a hot, dirty passage
+    // sat in deep gain reduction, and Chrome's DynamicsCompressorNode applies
+    // no makeup -- so the reduction earned by the loud parts was still being
+    // applied to the quiet ones a quarter of a second later, and the gaps
+    // between throbs, the flicker and the deliberate holes all went to
+    // nothing. Measured: over a sevenfold range of drive the peak never moved
+    // off 0.35, which is not a limiter working, it is a limiter holding the
+    // whole thing down.
+    //
+    // A waveshaper cannot do that. It has no attack, no release and no memory,
+    // so it can never take a quiet moment away because a loud one happened
+    // before it. The compressor stays, set gently enough to be a shock
+    // absorber rather than a leveller, and the curve behind it is the ceiling.
     comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -6; comp.knee.value = 4; comp.ratio.value = 9;
-    comp.attack.value = 0.004; comp.release.value = 0.25;
+    comp.threshold.value = -3; comp.knee.value = 9; comp.ratio.value = 3;
+    comp.attack.value = 0.008; comp.release.value = 0.14;
+    const ceiling = shaper(1.05);
 
     outGain = ctx.createGain(); outGain.gain.value = 0.0001;
 
-    bus.connect(wow);
+    // --- everything you cannot hear, taken out before it costs anything ---
+    //
+    // Reported from play, and the guess was that the convolution was blowing
+    // up. Close: it was what was being *put into* it. The drone's lowest voice
+    // is the root two octaves down, which for these keys is 20-31Hz -- under
+    // the bottom of hearing, under the bottom of every speaker this will be
+    // played on, and 84% of the score's entire energy by RMS as measured.
+    //
+    // Nobody hears any of it and everything downstream has to carry all of it:
+    // it drives the ceiling, so the audible part gets pushed down to make room
+    // for a rumble that is not there, and it drives it harder the dirtier the
+    // score gets, because saturating a sine leaves the fundamental exactly
+    // where it was and adds to everything above it. That is the dropout, and
+    // it is why it arrives with the intensity and why it happened on every
+    // machine.
+    //
+    // Two highpasses at 42Hz and a shelf taking 8dB off everything under
+    // 120Hz. The highpasses alone were not enough -- measured, the energy is
+    // not under 34Hz, it is spread across 35 to 60, which is the throb's
+    // fundamental sagging and the drone's second voice. The shelf is what
+    // actually changes the balance, and it is the difference between a score
+    // that is mostly a rumble you cannot hear and one that is mostly the sound
+    // it is supposed to be making.
+    const sub1 = ctx.createBiquadFilter();
+    sub1.type = 'highpass'; sub1.frequency.value = 42; sub1.Q.value = 0.7;
+    const sub2 = ctx.createBiquadFilter();
+    sub2.type = 'highpass'; sub2.frequency.value = 42; sub2.Q.value = 0.7;
+    const shelf = ctx.createBiquadFilter();
+    shelf.type = 'lowshelf'; shelf.frequency.value = 120; shelf.gain.value = -8;
+
+    bus.connect(sub1); sub1.connect(sub2); sub2.connect(shelf); shelf.connect(wow);
     wow.connect(dry); dry.connect(tilt);
-    wow.connect(gritIn); gritIn.connect(grit); grit.connect(tilt);
-    tilt.connect(duck); duck.connect(comp); comp.connect(outGain); outGain.connect(destination);
+    gritOut = ctx.createGain(); gritOut.gain.value = 0.5;
+    wow.connect(gritIn); gritIn.connect(grit); grit.connect(gritOut); gritOut.connect(tilt);
+    tilt.connect(duck); duck.connect(comp); comp.connect(ceiling);
+    ceiling.connect(outGain); outGain.connect(destination);
 
     // --- the room it is all happening in ---------------------------------
     // Everything is a long way away and none of it is in the room with you.
     // A pre-delay in front of the convolver is most of what makes a space
     // sound big; without it a long tail just sounds like a long tail.
     revSend = ctx.createGain(); revSend.gain.value = 1;
+    // and nothing low goes into the reverb at all. No room reverberates
+    // usefully down there, a six-second tail fed sub-bass is an integrator,
+    // and it is the single most expensive thing that can be done to the
+    // headroom of a mix. This is ordinary practice and it should have been
+    // here from the start.
+    const revHp = ctx.createBiquadFilter();
+    revHp.type = 'highpass'; revHp.frequency.value = 130; revHp.Q.value = 0.6;
     const pre = ctx.createDelay(0.2); pre.delayTime.value = 0.045;
     const conv = ctx.createConvolver();
     conv.buffer = impulse(6.0, 2.4);
@@ -258,7 +314,7 @@ const Music = (() => {
     const revThin = ctx.createBiquadFilter();
     revThin.type = 'highpass'; revThin.frequency.value = 90; revThin.Q.value = 0.4;
     revReturn = ctx.createGain(); revReturn.gain.value = 1.15;
-    revSend.connect(pre); pre.connect(conv); conv.connect(revDark);
+    revSend.connect(revHp); revHp.connect(pre); pre.connect(conv); conv.connect(revDark);
     revDark.connect(revThin); revThin.connect(revReturn); revReturn.connect(bus);
 
     // and one dark feedback delay, off the metal and the stabs only
@@ -292,7 +348,7 @@ const Music = (() => {
     // shaper for all the voices means they distort into each other.
     throbDrive = ctx.createGain(); throbDrive.gain.value = 1;
     const throbShape = shaper(3.0);
-    const throbMakeup = ctx.createGain(); throbMakeup.gain.value = 0.72;
+    throbMakeup = ctx.createGain(); throbMakeup.gain.value = 0.72;
     throbDrive.connect(throbShape); throbShape.connect(throbMakeup); throbMakeup.connect(throbBus);
 
     stabDrive = ctx.createGain(); stabDrive.gain.value = 1;
@@ -357,13 +413,18 @@ const Music = (() => {
   function throb(t, level, hard) {
     const f = mtof(HOUSE.root - 12);
     const o = mkOsc(); o.type = 'sine'; o.frequency.value = f;
+    // The fundamental of this note is around 45Hz and it sags to 39. Most of
+    // what makes it a thud rather than a rumble is the saw over it, so the
+    // sine is turned down and the saw up: the same note, audible on something
+    // that is not a subwoofer.
+    const og = ctx.createGain(); og.gain.value = 0.62;
     const w = mkOsc(); w.type = 'sawtooth'; w.frequency.value = f;
     w.detune.value = mrr(-14, 14);
-    const wg = ctx.createGain(); wg.gain.value = 0.34 + 0.3 * M.depth;
+    const wg = ctx.createGain(); wg.gain.value = 0.52 + 0.3 * M.depth;
     const flt = ctx.createBiquadFilter(); flt.type = 'lowpass'; flt.Q.value = 7;
     const env = ctx.createGain(); env.gain.value = 0.0001;
 
-    o.connect(flt); w.connect(wg); wg.connect(flt);
+    o.connect(og); og.connect(flt); w.connect(wg); wg.connect(flt);
     flt.connect(env); env.connect(throbDrive);
 
     const dec = hard ? 0.34 : 0.20;
@@ -509,7 +570,10 @@ const Music = (() => {
     const base = mtof(HOUSE.root + 12);
     const master = ctx.createGain(); master.gain.value = 0.0001;
     master.connect(padBus);
-    const peak = 0.08 + M.depth * 0.09 + M.unease * 0.04;
+    // It sustains for up to half a minute into a very wet organ bus, so it is
+    // the one voice here whose level is a running total rather than an event.
+    // Reported as too loud, and it was: this is a little under half.
+    const peak = 0.035 + M.depth * 0.042 + M.unease * 0.018;
     const fade = dur * 0.22;
     const end = cut ? dur * mrr(0.35, 0.7) : dur;
     master.gain.setValueAtTime(0.0001, t);
@@ -543,7 +607,7 @@ const Music = (() => {
   // continuously, and it is the first thing to go when you stop.
   function buildBed() {
     const mix = ctx.createGain(); mix.gain.value = 1;
-    const sh = shaper(3.2);
+    const sh = shaper(2.1);
     const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 240; lp.Q.value = 0.9;
     const breath = ctx.createGain(); breath.gain.value = 1;
     mix.connect(sh); sh.connect(lp); lp.connect(breath); breath.connect(bedGate);
@@ -561,7 +625,9 @@ const Music = (() => {
     const osc = [];
     // root -24 and -17 as before, and the rub, which is the whole difference
     // between a drone that is calm and a drone that is not
-    for (const [semi, g0, saw] of [[-24, 0.55, 0.30], [-17, 0.26, 0.16], [-24 + HOUSE.rub, 0.20, 0.10]]) {
+    // Levels down at source too, not only filtered afterwards: a shelf takes
+    // away what is there, and what is there was too much to begin with.
+    for (const [semi, g0, saw] of [[-24, 0.30, 0.22], [-17, 0.19, 0.14], [-24 + HOUSE.rub, 0.16, 0.09]]) {
       const f = mtof(HOUSE.root + semi);
       const g = ctx.createGain(); g.gain.value = g0;
       for (const det of [-6, 7]) {
@@ -603,7 +669,7 @@ const Music = (() => {
     }
     const src = ctx.createBufferSource(); src.buffer = nb; src.loop = true;
     const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 420; bp.Q.value = 0.7;
-    const csh = shaper(2.6);
+    const csh = shaper(1.9);
     const ng = ctx.createGain(); ng.gain.value = 0.34;
     src.connect(bp); bp.connect(csh); csh.connect(ng); ng.connect(mix); src.start();
 
@@ -913,28 +979,40 @@ const Music = (() => {
     const p = M.presence;
     // the drone is the atmosphere, but it must not be so loud that walking
     // stops making a difference -- standing still has to be the quiet state
-    const bedLvl = (0.055 + 0.15 * M.depth) * (0.72 + 0.28 * M.motion) * p;
+    const bedLvl = (0.085 + 0.22 * M.depth) * (0.72 + 0.28 * M.motion) * p;
     setg(bedBus, bedLvl, 1.6 / haste);
     setg(throbBus, (0.5 + 0.5 * M.motion) * p, 0.5 / haste);
     setg(padBus, (0.55 + 0.45 * M.depth) * p, 1.4 / haste);
     setg(metalBus, 0.65 * p, 0.8 / haste);
-    setg(outGain, 0.34 * (0.25 + 0.75 * p), 0.9 / haste);
+    // Louder than it was, and it can be: taking eight dB off everything under
+    // 120Hz gave the audible part of the score most of a mix to itself.
+    setg(outGain, 0.58 * (0.25 + 0.75 * p), 0.9 / haste);
 
     // How much worse the picture is than the depth alone would make it: zero
     // at ?fx=1, and what the score reads to dirty itself to match.
     const over = Math.max(-0.6, Math.min(2, M.vision - M.depth));
-    // the drive that used to be a fresh curve per note is now a gain in front
-    // of a fixed one, so it can simply be turned up
-    setg(throbDrive, Math.max(0.15, 0.7 + 2.4 * M.depth + 1.7 * M.unease + 2.6 * over), 0.8 / haste);
-    setg(stabDrive, Math.max(0.3, 1.0 + 0.6 * M.unease + 0.8 * over), 0.8 / haste);
-    setg(gritIn, Math.max(0, 0.22 + 0.42 * M.unease + 0.30 * M.depth + 0.45 * over), 1.2 / haste);
+
+    // Drive, and behind each one a makeup that takes back what the drive
+    // added. Distortion is supposed to change the *timbre*, not the level:
+    // without this, turning the dirt up is simply turning the score up, and
+    // everything downstream -- the reverb, the delay, the ceiling -- gets a
+    // hotter signal for no musical reason at all. That was the other half of
+    // the dropout. The amounts themselves are down by about half as well,
+    // which is what was actually asked for.
+    const drive = Math.max(0.15, 0.5 + 1.15 * M.depth + 0.85 * M.unease + 1.3 * over);
+    setg(throbDrive, drive, 0.8 / haste);
+    setg(throbMakeup, 0.78 * Math.pow(drive, -0.6), 0.8 / haste);
+    setg(stabDrive, Math.max(0.3, 1.0 + 0.4 * M.unease + 0.5 * over), 0.8 / haste);
+    const dirt = Math.max(0, 0.12 + 0.22 * M.unease + 0.16 * M.depth + 0.25 * over);
+    setg(gritIn, dirt, 1.2 / haste);
+    setg(gritOut, 0.42 / (0.35 + dirt), 1.2 / haste);
     setg(dry, 0.80 - 0.18 * M.depth, 1.2 / haste);
     setf(tilt, 1400 + 2400 * (1 - M.depth) * (0.55 + 0.45 * M.motion) + M.unease * 900, 1.0 / haste);
-    setg(wowDepth, Math.max(0, 0.0006 + 0.0026 * M.depth + 0.0020 * M.unease + 0.0024 * over), 2.5 / haste);
-    setg(revReturn, 0.95 + 0.55 * M.depth, 2.0 / haste);
+    setg(wowDepth, Math.max(0, 0.0006 + 0.0022 * M.depth + 0.0016 * M.unease + 0.0018 * over), 2.5 / haste);
+    setg(revReturn, 0.70 + 0.35 * M.depth, 2.0 / haste);
     if (bedNodes) {
       setf(bedNodes.lp, 150 + 460 * M.depth, 3.0 / haste);
-      setg(bedNodes.crackle, Math.max(0, 0.24 + 0.40 * M.depth + 0.30 * M.unease + 0.45 * over), 2.0 / haste);
+      setg(bedNodes.crackle, Math.max(0, 0.20 + 0.30 * M.depth + 0.22 * M.unease + 0.30 * over), 2.0 / haste);
     }
     return bedLvl;
   }
@@ -970,6 +1048,8 @@ const Music = (() => {
       levels(60);                       // no time to ease anything in here
       let t = 0.05, n = 0;
       const events = (state && state.events) || [];
+      if (state && state.glide) glide(0.5, state.glide === true ? 16 : state.glide, 1, false);
+      if (state && state.noverb) revReturn.gain.value = 0;
       while (t < seconds - 0.6) {
         for (const e of events) if (e.at !== undefined && e.at >= t && e.at < t + stepDur()) fire(e, t);
         step(n++, t);
@@ -979,8 +1059,23 @@ const Music = (() => {
         const d = buf.getChannelData(0);
         let peak = 0, sum = 0;
         for (let i = 0; i < d.length; i++) { const a = Math.abs(d[i]); if (a > peak) peak = a; sum += d[i] * d[i]; }
+        // How much of it is under about 60Hz, which is where a long reverb
+        // fed by a 27Hz drone puts energy nobody can hear and everything
+        // downstream still has to carry.
+        let lp = 0, lsum = 0;
+        const k = 2 * Math.PI * 60 / buf.sampleRate;
+        for (let i = 0; i < d.length; i++) { lp += (d[i] - lp) * k; lsum += lp * lp; }
+        const rms = Math.sqrt(sum / d.length);
+        // How much of the time the output is sitting on the ceiling. This is
+        // the number that says whether the score is overloading: a clipper is
+        // supposed to catch the odd stab, not to be the loudest thing in the
+        // signal path for the whole passage.
+        let pinned = 0;
+        for (let i = 0; i < d.length; i++) if (Math.abs(d[i]) > peak * 0.95) pinned++;
         return { buffer: buf, data: d, rate: buf.sampleRate,
-                 peak: +peak.toFixed(4), rms: +Math.sqrt(sum / d.length).toFixed(4),
+                 peak: +peak.toFixed(4), rms: +rms.toFixed(4),
+                 pinned: +(100 * pinned / d.length).toFixed(2),
+                 sub: +(Math.sqrt(lsum / d.length) / Math.max(1e-9, rms)).toFixed(3),
                  centroid: +centroid(d, buf.sampleRate).toFixed(1), steps: n };
       }).finally(() => { ctx = saved.ctx; bedNodes = saved.bedNodes; carried = saved.carried; });
     } catch (e) {

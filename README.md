@@ -180,7 +180,8 @@ thing happening to one person.
 
 `?nomusic=1` turns the score off, `?fx=N` scales both halves at once, and
 `npm run music` draws the score to a wav so it can be listened to away from the
-game, with how loud and how dark it is printed alongside.
+game, printing how loud it is, where its energy sits, and how much of the time
+it is on the ceiling.
 
 ## Keeping it fast
 
