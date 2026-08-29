@@ -74,7 +74,8 @@ generated building and a hand-written one are the same kind of thing.
 `window.VK` — `go(x,y,z,yaw,pitch)`, `goSpace(key)`, `aimAt(x,y,z)`,
 `tick(n)` (physics without rendering), `openAll()`, `grab()/hurl()`,
 `spaces`, `count()`, `info()`, `PORTALS`, `renderer`, `music`
-(`music.info()`, `music.render(sec, state)` — offline, refuses while playing).
+(`music.info()`, `music.render(sec, state)` — offline, refuses while playing,
+`music.drops` — output collapses caught in the act, also warned to the console).
 
 URL flags: `?seed=N`, `?perf=1`, `?pr=N` (pin pixel ratio), `?nograin=1`,
 `?nodrift=1` (stop rooms changing behind you), `?nofx=1` (raw render), `?fx=N` (perception pass gain, 1 is default),

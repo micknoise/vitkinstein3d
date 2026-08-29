@@ -16917,9 +16917,11 @@ const Music = (() => {
   let ctx = null, running = false, timer = null;
   let bus, dry, wow, wowLfo, wowDepth, grit, gritIn, tilt, comp, outGain, duck;
   let revSend, revReturn, delIn, delOut;
-  let throbBus, padBus, metalBus, bedBus, bedGate, throbDrive, stabDrive;
+  let throbBus, padBus, metalBus, bedBus, bedGate, throbDrive;
   let throbMakeup, gritOut;
   let bedNodes = null, carried = null, glideUntil = 0, glideAt = 1e9, _ir = null;
+  let analyser = null, anBuf = null, loud = 0, quietFor = 0, lastDrop = -99;
+  const drops = [];
   // ?noverb=1 takes the convolution out and leaves everything else exactly as
   // it is. Reported dropouts are believed to be the reverb; this is the one
   // experiment that settles it, and it has to be run on the machine it happens
@@ -16938,7 +16940,7 @@ const Music = (() => {
   function mkOsc() { made++; return ctx.createOscillator(); }
 
   let nextStep = 0, stepNo = 0, notes = 0;
-  let chord = 0, wantChord = 0;
+  let chord = 0, wantChord = 0, swellDue = false;
   const pending = [];        // events waiting for the next sixteenth
   const visq = [];           // what the picture should do, and when
 
@@ -17005,6 +17007,17 @@ const Music = (() => {
 
     outGain = ctx.createGain(); outGain.gain.value = 0.0001;
 
+    // --- catching a dropout in the act -----------------------------------
+    // I cannot reproduce the remaining ones here, so this listens to the
+    // score's own output on the machine where they happen. Every frame it
+    // takes the output's level; when the level collapses while the score
+    // believes it is playing, it writes down what was going on at that moment.
+    // VK.music.drops is the list, and each one is also warned to the console.
+    analyser = ctx.createAnalyser();
+    analyser.fftSize = 1024;
+    analyser.smoothingTimeConstant = 0;
+    anBuf = new Float32Array(analyser.fftSize);
+
     // --- everything you cannot hear, taken out before it costs anything ---
     //
     // Reported from play, and the guess was that the convolution was blowing
@@ -17039,8 +17052,10 @@ const Music = (() => {
     wow.connect(dry); dry.connect(tilt);
     gritOut = ctx.createGain(); gritOut.gain.value = 0.5;
     wow.connect(gritIn); gritIn.connect(grit); grit.connect(gritOut); gritOut.connect(tilt);
-    tilt.connect(duck); duck.connect(comp); comp.connect(ceiling);
+    duck.connect(bus);
+    tilt.connect(comp); comp.connect(ceiling);
     ceiling.connect(outGain); outGain.connect(destination);
+    outGain.connect(analyser);
 
     // --- the room it is all happening in ---------------------------------
     // Everything is a long way away and none of it is in the room with you.
@@ -17067,7 +17082,7 @@ const Music = (() => {
     _ir = conv.buffer;
     revDark.connect(revThin); revThin.connect(revReturn); revReturn.connect(bus);
 
-    // and one dark feedback delay, off the metal and the stabs only
+    // and one dark feedback delay, off the metal only
     delIn = ctx.createGain(); delIn.gain.value = 1;
     const d = ctx.createDelay(3.0); d.delayTime.value = 60 / HOUSE.bpm * 0.75;
     const fb = ctx.createGain(); fb.gain.value = 0.48;
@@ -17078,7 +17093,7 @@ const Music = (() => {
 
     const layer = (rev, del) => {
       const g = ctx.createGain(); g.gain.value = 0;
-      g.connect(bus);
+      g.connect(duck);
       if (rev > 0) { const s = ctx.createGain(); s.gain.value = rev; g.connect(s); s.connect(revSend); }
       if (del > 0) { const s = ctx.createGain(); s.gain.value = del; g.connect(s); s.connect(delIn); }
       return g;
@@ -17088,7 +17103,7 @@ const Music = (() => {
     metalBus = layer(1.00, 0.45);
     bedBus   = layer(0.40, 0);
 
-    // One shaper for the throb and one for the stabs, built once. The first
+    // One shaper for the throb, built once. The first
     // version made a WaveShaperNode -- and computed a 2048-point curve in
     // JavaScript -- for every note, several times a second, which is a great
     // deal of garbage to be making while a game is trying to hold a frame.
@@ -17101,10 +17116,6 @@ const Music = (() => {
     throbMakeup = ctx.createGain(); throbMakeup.gain.value = 0.72;
     throbDrive.connect(throbShape); throbShape.connect(throbMakeup); throbMakeup.connect(throbBus);
 
-    stabDrive = ctx.createGain(); stabDrive.gain.value = 1;
-    const stabShape = shaper(4);
-    const stabMakeup = ctx.createGain(); stabMakeup.gain.value = 0.8;
-    stabDrive.connect(stabShape); stabShape.connect(stabMakeup); stabMakeup.connect(metalBus);
 
     // the stutter sits between the drone and its own level, so a flicker
     // chops the drone and leaves its reverb tail ringing on underneath
@@ -17239,9 +17250,25 @@ const Music = (() => {
   // Whatever organ is already sounding is taken away as this one arrives.
   // There is only ever one chord: rooms do not stack, and a player running
   // through five of them hears five chords, not five chords at once.
+  // cancelScheduledValues removes the events at or after a time -- and a
+  // parameter in the middle of a ramp then reverts to the last value set
+  // *before* it, which for an organ still in its attack is the 0.0001 it
+  // started from. So killing a swell before it had finished arriving did not
+  // fade it, it cut it to silence in one sample, with the click that implies.
+  // Reported from play as the pad being cut off when you leave a room, which
+  // is exactly when it happens: rooms change faster than a 2.4 second attack.
+  //
+  // cancelAndHoldAtTime keeps the value the parameter has actually reached and
+  // lets the fade start from there. Every place in here that interrupts a ramp
+  // goes through this.
+  function holdAt(param, t) {
+    if (param.cancelAndHoldAtTime) param.cancelAndHoldAtTime(t);
+    else param.cancelScheduledValues(t);          // older engines: no hold
+  }
+
   function killPads(t, fade) {
     for (const v of padVoices) {
-      for (const e of v.env) { e.gain.cancelScheduledValues(t); e.gain.setTargetAtTime(0.0001, t, fade / 3); }
+      for (const e of v.env) { holdAt(e.gain, t); e.gain.setTargetAtTime(0.0001, t, fade / 3); }
       for (const o of v.osc) { try { o.stop(t + fade + 0.15); } catch (err) { /* already stopped */ } }
     }
     padVoices.length = 0;
@@ -17326,28 +17353,6 @@ const Music = (() => {
     env.gain.exponentialRampToValueAtTime(0.0001, t + decay);
     [c, m].forEach(o => { o.start(t); o.stop(t + decay + 0.2); });
     see(t, 'shine', Math.min(1, level * 4));
-  }
-
-  // A cluster with a semitone and a tritone guaranteed in it, hit hard and
-  // shut fast. This is the only loud thing in here and it only happens when
-  // you throw something.
-  function stab(base, t, level) {
-    for (const midi of [base, base + (mchance(0.5) ? 1 : 6), base + 11, base + 12]) {
-      const f = mtof(midi);
-      const a = mkOsc(); a.type = 'sawtooth'; a.frequency.value = f; a.detune.value = -7;
-      const b = mkOsc(); b.type = 'sawtooth'; b.frequency.value = f; b.detune.value = 7;
-      const flt = ctx.createBiquadFilter(); flt.type = 'lowpass'; flt.Q.value = 7;
-      const env = ctx.createGain(); env.gain.value = 0.0001;
-      a.connect(flt); b.connect(flt); flt.connect(env); env.connect(stabDrive);
-      flt.frequency.setValueAtTime(4800, t);
-      flt.frequency.exponentialRampToValueAtTime(420, t + 0.42);
-      env.gain.setValueAtTime(0.0001, t);
-      env.gain.linearRampToValueAtTime(level, t + 0.004);
-      env.gain.exponentialRampToValueAtTime(0.0001, t + 0.42);
-      [a, b].forEach(o => { o.start(t); o.stop(t + 0.5); });
-    }
-    see(t, 'shine', 1);
-    see(t, 'pulse', 1);
   }
 
   // Octave-spaced sines gliding together under a fixed amplitude window, so
@@ -17476,26 +17481,39 @@ const Music = (() => {
     const g = bedGate.gain;
     const rate = 0.018 + MR() * 0.05;
     let at = t;
-    g.cancelScheduledValues(t);
+    holdAt(g, t);
+    // Two milliseconds, not none. setValueAtTime steps a gain instantaneously,
+    // and stepping a sustained drone's gain from 1 to 0.06 in one sample is a
+    // click -- measured as the largest sample-to-sample jump in the whole
+    // passage, which is what a click is. Two milliseconds is far too fast to
+    // hear as a fade and slow enough not to snap.
     while (at < t + dur) {
       const on = mchance(0.45);
-      g.setValueAtTime(on ? 1 : 0.06 + MR() * 0.2, at);
+      g.linearRampToValueAtTime(on ? 1 : 0.06 + MR() * 0.2, at + 0.002);
       see(at, 'flicker', on ? 0.15 : 0.75 + MR() * 0.25);
       at += rate * (0.6 + MR());
     }
-    g.setValueAtTime(1, at);
+    g.linearRampToValueAtTime(1, at + 0.004);
     see(at, 'flicker', 0);
   }
 
-  // A hole in everything. Two hundred milliseconds of nothing is the single
-  // most unsettling thing available to a soundtrack and it costs one gain.
+  // The room swallows it for a moment.
+  //
+  // This was a hole in *everything*, down to 2% for up to a third of a second,
+  // across the master -- and a soundtrack that mutes itself for 300ms is
+  // indistinguishable from a soundtrack that has broken, which is how it was
+  // reported. It now ducks the layers only and not their reverb, so the tail
+  // rings on through it: the sound is taken away and the room it was in is
+  // not, which is the difference between a held breath and a fault. Shallower
+  // and shorter with it.
   function duckFor(t, dur) {
     const g = duck.gain;
-    g.cancelScheduledValues(t);
-    g.setValueAtTime(1, t);
-    g.linearRampToValueAtTime(0.02, t + 0.012);
-    g.setValueAtTime(0.02, t + dur);
-    g.linearRampToValueAtTime(1, t + dur + 0.09);
+    // held, then ramped from wherever it actually is -- not snapped back to 1
+    // first, which is a click of its own whenever two of these overlap
+    holdAt(g, t);
+    g.linearRampToValueAtTime(0.34, t + 0.02);
+    g.setValueAtTime(0.34, t + dur);
+    g.linearRampToValueAtTime(1, t + dur + 0.12);
   }
 
   // --- what the picture should do, and when -------------------------------
@@ -17531,11 +17549,15 @@ const Music = (() => {
       // The chord follows you into every room. The organ does not: running
       // through the house is exactly the case that used to stack swells
       // faster than they decayed, and a chord you cannot hear announced is
-      // still the chord the bells and the stabs are drawn from.
-      if (wantChord !== chord) {
-        chord = wantChord;
-        if (t - lastSwellAt > 3.2) soundChord(t);
-      }
+      // still the chord the bells are drawn from.
+      // A chord change that arrives too soon after the last one does not get
+      // its organ -- but it used to be dropped entirely, so the chord moved
+      // and the organ went on holding the one before it. Leaving a room and
+      // coming back was then a pad that had been cut off, briefly held the
+      // wrong chord and then put itself right at whatever the next swell
+      // happened to be. It is deferred now, not discarded.
+      if (wantChord !== chord) { chord = wantChord; swellDue = true; }
+      if (swellDue && t - lastSwellAt > 3.2) { swellDue = false; soundChord(t); }
       // and the rhythm is re-rolled if you have walked far enough
       if (walkSteps >= 8) { walkSteps = 0; reroll(); }
     }
@@ -17565,8 +17587,8 @@ const Music = (() => {
       flickerBurst(t, stepDur() * (1 + Math.floor(MR() * 3)));
 
     // --- the hole ----------------------------------------------------------
-    if (bar === 0 && M.presence > 0.5 && MR() < 0.018 + 0.05 * M.depth)
-      duckFor(t + stepDur() * Math.floor(MR() * 4), 0.10 + MR() * 0.22);
+    if (bar === 0 && M.presence > 0.5 && MR() < 0.012 + 0.03 * M.depth)
+      duckFor(t + stepDur() * Math.floor(MR() * 4), 0.07 + MR() * 0.11);
 
     // --- the climb ---------------------------------------------------------
     // Fired on a delay that has nothing to do with any door you came through.
@@ -17612,8 +17634,11 @@ const Music = (() => {
         dropNote(t);
         break;
       case 'throw':
+        // No stab. It was the one gesture in here that announced itself, and
+        // throwing something is already the loudest thing you can do with your
+        // hands -- the object hits a wall a moment later and that lands *in*
+        // the bar, which is a better answer than a chord shouting over it.
         dropNote(t);
-        stab(tones[0] + 12, t, 0.19);
         break;
       case 'impact': {
         // quantised, so a bucket falling down the stairs lands in the bar
@@ -17664,8 +17689,7 @@ const Music = (() => {
   function dropNote(t) {
     if (!carried) return;
     const c = carried; carried = null;
-    c.g.gain.cancelScheduledValues(t);
-    c.g.gain.setValueAtTime(Math.max(0.0001, c.g.gain.value), t);
+    holdAt(c.g.gain, t);
     c.g.gain.exponentialRampToValueAtTime(0.0001, t + 0.7);
     for (const o of c.osc) {
       o.frequency.setValueAtTime(c.f, t);
@@ -17747,6 +17771,7 @@ const Music = (() => {
 
     M.weight *= Math.exp(-dt * 1.5);
     const bedLvl = levels(1);
+    listen(dt);
 
     // the next climb, once there is something to climb out of
     if (M.presence > 0.4 && glideAt > 1e8 && now > glideUntil + 18)
@@ -17760,6 +17785,37 @@ const Music = (() => {
     raw.sub = clamp01(bedLvl * 1.3 + M.weight * 0.45);
     fx.tension = clamp01(0.35 * M.unease + 0.45 * M.depth * M.presence + 0.2 * M.motion * M.presence);
     govern();
+  }
+
+  // Is the score still making a sound? `loud` is the loudest it has been in
+  // the last couple of seconds; if the output falls to almost nothing against
+  // that while presence says it should be playing, and stays there for a few
+  // frames, something has gone wrong that none of the offline measurements
+  // catch -- so write down everything that was true at the time.
+  function listen(dt) {
+    if (!analyser || !anBuf) return;
+    analyser.getFloatTimeDomainData(anBuf);
+    let sq = 0;
+    for (let i = 0; i < anBuf.length; i++) sq += anBuf[i] * anBuf[i];
+    const rms = Math.sqrt(sq / anBuf.length);
+    loud = Math.max(rms, loud * Math.exp(-dt / 2));
+    const playing = M.presence > 0.35 && loud > 0.004;
+    if (playing && rms < loud * 0.06) quietFor += dt; else quietFor = 0;
+    const now = ctx.currentTime;
+    if (quietFor > 0.05 && now - lastDrop > 1.5) {
+      lastDrop = now;
+      const d = {
+        at: +now.toFixed(2), forMs: Math.round(quietFor * 1000),
+        rms: +rms.toFixed(5), loud: +loud.toFixed(5),
+        motion: +M.motion.toFixed(2), unease: +M.unease.toFixed(2),
+        depth: +M.depth.toFixed(2), presence: +M.presence.toFixed(2),
+        pads: padVoices.length, squash: +comp.reduction.toFixed(1),
+        gliding: now < glideUntil, carrying: !!carried
+      };
+      drops.push(d);
+      if (drops.length > 60) drops.shift();
+      console.warn('[score] output collapsed', JSON.stringify(d));
+    }
   }
 
   // Every level and every filter, worked out from the macros. `haste` is 1 in
@@ -17793,7 +17849,6 @@ const Music = (() => {
     const drive = Math.max(0.15, 0.5 + 1.15 * M.depth + 0.85 * M.unease + 1.3 * over);
     setg(throbDrive, drive, 0.8 / haste);
     setg(throbMakeup, 0.78 * Math.pow(drive, -0.6), 0.8 / haste);
-    setg(stabDrive, Math.max(0.3, 1.0 + 0.4 * M.unease + 0.5 * over), 0.8 / haste);
     const dirt = Math.max(0, 0.12 + 0.22 * M.unease + 0.16 * M.depth + 0.25 * over);
     setg(gritIn, dirt, 1.2 / haste);
     setg(gritOut, 0.42 / (0.35 + dirt), 1.2 / haste);
@@ -17859,7 +17914,7 @@ const Music = (() => {
         const rms = Math.sqrt(sum / d.length);
         // How much of the time the output is sitting on the ceiling. This is
         // the number that says whether the score is overloading: a clipper is
-        // supposed to catch the odd stab, not to be the loudest thing in the
+        // supposed to catch an occasional peak, not to be the loudest thing in the
         // signal path for the whole passage.
         let pinned = 0;
         for (let i = 0; i < d.length; i++) if (Math.abs(d[i]) > peak * 0.95) pinned++;
@@ -17941,6 +17996,7 @@ const Music = (() => {
   return {
     start, stop, update, event, fx, render, KINDS,
     get ir() { return _ir; },
+    get drops() { return drops.slice(); },
     get running() { return running; },
     degreeOf, chordNotes,
     info: () => ({
