@@ -863,7 +863,9 @@ function animate() {
     speed: Math.hypot(playerBody.velocity.x, playerBody.velocity.z),
     yaw, dose
   });
-  musicLight = 1 + Music.fx.pulse * 0.09 - Music.fx.sub * 0.045;
+  // The stutter in the drone and the bad bulb in the ceiling are the same
+  // event. Nothing explains either.
+  musicLight = 1 + Music.fx.pulse * 0.09 - Music.fx.sub * 0.045 - Music.fx.flicker * 0.34;
 
   updateHover();
   if (hoverTarget !== shownHover) {

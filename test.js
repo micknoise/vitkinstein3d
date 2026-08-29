@@ -42,12 +42,22 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
     });
     assert(!score.at_load.running &&
            score.at_load.fx.pulse === 0 && score.at_load.fx.sub === 0 &&
-           score.at_load.fx.shine === 0 && score.at_load.fx.tension === 0,
+           score.at_load.fx.shine === 0 && score.at_load.fx.tension === 0 &&
+           score.at_load.fx.flicker === 0,
       'the score is silent until it is started, and moves no pixel until it is');
     assert(score.at_load.root >= 40 && score.at_load.root <= 47 &&
-           [14, 16, 20].indexOf(score.at_load.metre) >= 0 && score.at_load.onsets >= 3,
-      'the house has a tune of its own (' + score.at_load.mode + ' on ' + score.at_load.root +
-      ', ' + score.at_load.metre + '/16 at ' + score.at_load.bpm + 'bpm, ' + score.at_load.onsets + ' notes)');
+           [14, 16, 20].indexOf(score.at_load.metre) >= 0 && score.at_load.onsets >= 3 &&
+           (score.at_load.rub === 1 || score.at_load.rub === 6),
+      'the house has a rhythm of its own (' + score.at_load.metre + '/16 at ' +
+      score.at_load.bpm + 'bpm, ' + score.at_load.onsets + ' beats, rubbing ' +
+      score.at_load.rub + ' semitone' + (score.at_load.rub === 1 ? '' : 's') + ' against itself)');
+    // The first version stacked diatonic thirds, which in a minor mode hands
+    // you bIII, bVI and bVII -- three major triads arriving for no reason
+    // anybody in the building could explain. Played, and reported as exactly
+    // that. There is no major third in the vocabulary now, and this is checked
+    // rather than asserted.
+    assert(score.at_load.majors === 0,
+      'and nothing in it is a major chord (' + score.at_load.chords + ' shapes, none with a major third)');
     // Players mark rooms to find out whether they have been in them (PLAN §2).
     // A room that sounded different every time you walked into it would be a
     // marker that lies, in the one register they are not watching.
@@ -61,11 +71,19 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
       'and nothing in it answers to a fold, which has to be silent');
     assert(score.takes.gone.peak === 0,
       'stop moving and touch nothing and it stops -- properly, to zero');
-    assert(score.takes.walking.peak > score.takes.still.peak * 1.8,
-      'walking is louder than standing (' + score.takes.walking.peak + ' vs ' + score.takes.still.peak + ')');
+    // RMS rather than peak: the drone is saturated, so its peak barely moves
+    // however quiet it gets, and peak would let the difference the whole form
+    // depends on disappear without failing anything.
+    assert(score.takes.walking.rms > score.takes.still.rms * 1.35,
+      'walking is louder than standing (rms ' + score.takes.walking.rms + ' vs ' +
+      score.takes.still.rms + ', peak ' + score.takes.walking.peak + ' vs ' + score.takes.still.peak + ')');
     assert(score.takes.walking.peak < 0.55 && score.takes.walking.rms < 0.16,
       'and none of it is loud (peak ' + score.takes.walking.peak + ', rms ' + score.takes.walking.rms + ')');
-    assert(score.takes.still.centroid < 120 && score.takes.walking.centroid < 700,
+    // The bar is the rest of this project's sound: wood measures 150Hz, metal
+    // 206Hz, tile 154Hz. The crackle over the drone puts standing above where
+    // it was before it had any, and that is the point of it -- but the score
+    // still has to sit under the foley rather than over it.
+    assert(score.takes.still.centroid < 240 && score.takes.walking.centroid < 700,
       'and all of it is low (' + score.takes.still.centroid + 'Hz standing, ' +
       score.takes.walking.centroid + 'Hz walking)');
 
@@ -449,9 +467,17 @@ const SEEDS = process.argv[2] ? [process.argv[2]] : [7, 1234, 99999, 424242, 867
       const before = VK.music.info();
       for (let i = 0; i < 9; i++) VK.music.event('step');
       VK.music.event('grab', { mass: 0.4, size: 0.16, cls: 'ceramic' });
-      let shine = 0;
-      for (let i = 0; i < 14; i++) { await sleep(60); shine = Math.max(shine, VK.music.fx.shine); }
-      const holding = VK.music.info();
+      // The bell waits for the next sixteenth, and the scheduler is a timer
+      // the browser is allowed to slow down, so this waits on the event rather
+      // than on a fixed number of milliseconds.
+      let shine = 0, holding = null;
+      for (let i = 0; i < 60; i++) {
+        await sleep(50);
+        shine = Math.max(shine, VK.music.fx.shine);
+        const now = VK.music.info();
+        if (now.carrying) { holding = holding || now; if (shine > 0) break; }
+      }
+      holding = holding || VK.music.info();
       VK.music.event('drop');
       await sleep(900);
       const empty = VK.music.info();

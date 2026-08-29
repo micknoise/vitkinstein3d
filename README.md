@@ -135,29 +135,36 @@ the raw render.
 ## The score
 
 There is music, and it has no existence of its own. It is a reading of what you
-are doing, and if you stand still and touch nothing it stops — the ostinato
-inside two seconds, the bed under it after sixteen, and then the building is as
-quiet as it was before you arrived.
+are doing, and if you stand still and touch nothing it stops — the throb inside
+two seconds, the drone under it after sixteen, and then the building is as quiet
+as it was before you arrived.
 
-Everything you do is in it. Walking is the only reason the pulse exists at all,
-and every eighth footstep rewrites one note of the figure, so what you are
-hearing is something you walked into being. Taking an object gives you a note to
-carry and putting it down ends it. Throwing one is a dissonant cluster. A door
-moves the harmony, because a door is the strongest instrument in the building.
-Every room owns a chord, hashed from its name and the seed, so the front room
-sounds like the front room every time you are in it — which is exactly the
-evidence somebody marking rooms with mugs is trying to collect. The further in
-you are, the slower, darker and heavier it gets, and a long way in something
-starts climbing that never arrives anywhere.
+There is no melody in it and deliberately no arpeggiator. What walking drives is
+a **throb** — one distorted low note on an odd metre, with no tune in it to
+like — and a stutter gate that flickers the drone. Every eighth footstep
+re-rolls both patterns, so what you are hearing is still something you walked
+into being. Nothing is a major chord: rooms own dissonances, and the drone
+always has a semitone or a tritone rubbing against it.
+
+Taking an object gives you a note to carry and putting it down ends it. Throwing
+one is a dissonant cluster. A door moves the harmony, because a door is the
+strongest instrument in the building. Every room owns a chord, hashed from its
+name and the seed, so the front room sounds like the front room every time you
+are in it — which is exactly the evidence somebody marking rooms with mugs is
+trying to collect. The further in you are, the slower, dirtier and heavier it
+gets, and something climbs that never arrives anywhere and is sometimes cut off
+part-way up, leaving a hole.
 
 Crossing a fold makes no sound at all, and nothing in the score is allowed to
 line up with one.
 
-It is wired into the picture: a note of the ostinato lifts every lamp in the
-room a few per cent and pushes the perception pass, the weight underneath closes
-the field of view in and thickens the fog, and a bell pulls the colour apart and
-leaves a longer after-image. All of it is exactly zero until the music starts,
-so a build with the score renders the same pixels as one without.
+It is wired into the picture: the throb lifts every lamp in the room a few per
+cent and pushes the perception pass, the weight underneath closes the field of
+view in and thickens the fog, a bell pulls the colour apart and leaves a longer
+after-image, and the stutter takes the lights with it — the flicker in the drone
+and the bad bulb in the ceiling are the same event, and nothing explains either.
+All of it is exactly zero until the music starts, so a build with the score
+renders the same pixels as one without.
 
 `?nomusic=1` turns it off. `npm run music` draws it to a wav so it can be
 listened to away from the game, and prints how loud and how dark it is.

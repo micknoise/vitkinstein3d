@@ -52,9 +52,11 @@ function wav(samples, rate) {
   await page.waitForFunction(() => !!window.VK, null, { timeout: 90000 });
 
   const house = await page.evaluate(() => VK.music.info());
-  console.log('house ' + seed + ' — root ' + house.root + ' ' + house.mode +
-              ', ' + house.metre + '/16 at ' + house.bpm + 'bpm, ' + house.onsets + ' notes in the figure');
-  console.log('cell  ' + house.cell.map(v => v === null ? '·' : v).join(' '));
+  console.log('house ' + seed + ' — root ' + house.root + ', ' + house.metre + '/16 at ' +
+              house.bpm + 'bpm, ' + house.onsets + ' beats, rubbing ' + house.rub +
+              ' semitone' + (house.rub === 1 ? '' : 's') + ' against itself');
+  console.log('throb ' + house.throb.map(v => v ? '×' : '·').join(' '));
+  console.log('gate  ' + house.gate.map(v => v ? '×' : '·').join(' '));
   console.log('\nstate      peak     rms   centroid   file');
 
   for (const name of Object.keys(STATES)) {

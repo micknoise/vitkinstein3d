@@ -73,6 +73,7 @@ const FINAL_FRAG = `
   uniform float mPulse;
   uniform float mSub;
   uniform float mShine;
+  uniform float mFlick;
   varying vec2 vUv;
 
   float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -139,7 +140,7 @@ const FINAL_FRAG = `
     vec2 gp = uv * res * 0.9;
     float g1 = hash(floor(gp) + floor(time * 24.0) * 13.7) - 0.5;
     float g2 = hash(floor(gp * 0.45) + floor(time * 11.0) * 41.3) - 0.5;
-    col += (g1 * 0.62 + g2 * 0.38) * ((0.090 + 0.130 * dose) * gain + 0.060 * mPulse);
+    col += (g1 * 0.62 + g2 * 0.38) * ((0.090 + 0.130 * dose) * gain + 0.060 * mPulse + 0.075 * mFlick);
 
     // --- the room is not quite the colour it was --------------------------
     float lum = dot(col, vec3(0.299, 0.587, 0.114));
@@ -150,7 +151,7 @@ const FINAL_FRAG = `
     // It closes in, but you can still see: at 0.76 with a reach of 0.46 the
     // deep rooms came out as a black rectangle with grain on it, which is not
     // a narrowing field of view, it is a fade to black.
-    float vig = (0.30 + 0.24 * dose) * mix(1.0, gain, 0.5) + 0.085 * mSub;
+    float vig = (0.30 + 0.24 * dose) * mix(1.0, gain, 0.5) + 0.085 * mSub + 0.22 * mFlick;
     float reach = mix(1.00, 0.62, dose);
     col *= 1.0 - vig * smoothstep(0.06, reach, r2);
 
@@ -253,7 +254,7 @@ function initVision() {
       res: { value: new THREE.Vector2(size.x, size.y) },
       time: { value: 0 }, dose: { value: DOSE_AT_START },
       gain: { value: FX_GAIN },
-      mPulse: { value: 0 }, mSub: { value: 0 }, mShine: { value: 0 }
+      mPulse: { value: 0 }, mSub: { value: 0 }, mShine: { value: 0 }, mFlick: { value: 0 }
     },
     vertexShader: FX_VERT, fragmentShader: FINAL_FRAG, depthTest: false, depthWrite: false
   });
@@ -300,6 +301,7 @@ function renderVision(t, dt, spaceKey) {
   finalMat.uniforms.mPulse.value = mf.pulse;
   finalMat.uniforms.mSub.value = mf.sub;
   finalMat.uniforms.mShine.value = mf.shine;
+  finalMat.uniforms.mFlick.value = mf.flicker;
   fxMesh.material = finalMat;
   renderer.setRenderTarget(null);
   renderer.render(fxScene, fxCam);
