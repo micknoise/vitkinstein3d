@@ -1146,8 +1146,12 @@ const PROPS = {
   tin: ({ x, z, y }) => mkCyl(0.043, 0.043, 0.11, 12, MAT.metal, [x, (y || 0) + 0.055, z], 0.5, { snd: 'tin' }),
   mug: ({ x, z, y }) => {
     const c = mkCyl(0.042, 0.036, 0.095, 12, MAT.plastic, [x, (y || 0) + 0.048, z], 0.35, { snd: 'ceramic' });
+    // the torus's ring already lies in the plane a handle needs -- radial and
+    // vertical, so it bulges outward from the cup wall. rotating it z-wise
+    // only turns the open ends to meet the wall at top and bottom instead of
+    // leaving a stub floating past the rim
     const h = new THREE.Mesh(new THREE.TorusGeometry(0.028, 0.008, 5, 10, Math.PI * 1.4), MAT.plastic);
-    h.position.set(0.048, 0, 0); h.rotation.y = Math.PI / 2; c.mesh.add(h);
+    h.position.set(0.048, 0, 0); h.rotation.z = -Math.PI * 0.7; c.mesh.add(h);
   },
   ball: ({ x, z, y }) => {
     const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.075, 16, 12), MAT.red);

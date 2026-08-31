@@ -294,6 +294,11 @@ function traverse(p) {
     held.position.set(hp.x, hp.y, hp.z);
     const hv = new THREE.Vector3(held.velocity.x, 0, held.velocity.z).applyAxisAngle(new THREE.Vector3(0, 1, 0), dYaw);
     held.velocity.set(hv.x, held.velocity.y, hv.z);
+    // turn the thing itself as well, or it arrives facing the way it faced
+    // before the fold instead of the way it faces now -- a flip, from the
+    // camera's side, whenever dYaw is near a half turn
+    _bq.setFromEuler(0, dYaw, 0);
+    held.quaternion.copy(_bq.mult(held.quaternion));
     // it came through with the player, so it must not also come through on its
     // own account on the next frame
     refreshBodySides(held);
